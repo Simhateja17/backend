@@ -128,6 +128,7 @@ class CartisanShoppingRuntime(AgentRuntime):
             cart=cart,
             page=session.page,
             now=session.local_now(),
+            channel=session.channel,
             max_chars=self.config.max_context_chars * 3,
         )
 

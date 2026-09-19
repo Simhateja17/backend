@@ -185,6 +185,9 @@ class SessionContext(ClockContext):
     # session's noise. Neither carries authority: they group evidence and nothing else.
     correlation_id: str | None = None
     turn_id: str | None = None
+    # Where the reply will be read. A chat app gets plain, short prose; the web
+    # surfaces render cards and can show more detail.
+    channel: Literal["web", "telegram"] = "web"
     demo_run_id: str | None = None
     page: PageContext = Field(default_factory=PageContext)
 

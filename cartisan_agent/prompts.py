@@ -141,6 +141,7 @@ def build_dynamic_context(
     max_chars: int = 6000,
     memory_brief: dict[str, Any] | None = None,
     catalogue_index: dict[str, list[str]] | None = None,
+    channel: str = "web",
 ) -> str:
     """The per-request half, appended after the cache breakpoint and wrapped in the
     data fence. Only the hour of the clock is rendered: minutes would change these
@@ -192,6 +193,8 @@ def build_dynamic_context(
         payload["current_page"] = page.model_dump(exclude_none=True)
     if now is not None:
         payload["local_time"] = context_clock(now)
+    if channel == "telegram":
+        payload["channel"] = TELEGRAM_CHANNEL_NOTE
     return "# Session context\n\n" + CARTISAN_FENCE.fence_payload(payload, max_chars=max_chars)
 
 
@@ -202,3 +205,13 @@ def prompt_fingerprint(static_system: str, tools: list[dict[str, Any]]) -> str:
     from .versions import digest
 
     return digest([static_system, json.dumps(tools, sort_keys=True, ensure_ascii=False)])
+
+
+# A chat app shows prose only, read on a phone by someone who is not technical.
+TELEGRAM_CHANNEL_NOTE = (
+    "This conversation is in Telegram, read on a phone. Write in plain, friendly, everyday "
+    "language, and keep it short. Refer to products by their names. Never show internal "
+    "ids, SKUs, table or field names, tool names, formulas or JSON. Round numbers sensibly "
+    "and explain any estimate in one simple sentence. Any rationale you write for a staged "
+    "change is shown to the owner as-is, so write it the same way."
+)

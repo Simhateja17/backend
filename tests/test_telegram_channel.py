@@ -272,7 +272,7 @@ def test_pending_changes_reach_linked_operators_and_need_a_second_approver(world
     link(world, "merchant", OPERATOR_P)
     link(world, "merchant", SECOND_P, user="9002", chat="5002")
 
-    pushes = [d for d in world.channel.relay() if d["body"]["text"].startswith("Proposed")]
+    pushes = [d for d in world.channel.relay() if d["body"]["text"].startswith("📝")]
     assert {d["body"]["chat_id"] for d in pushes} == {CHAT, "5002"}
 
     own = next(b for b in buttons([p for p in pushes if p["body"]["chat_id"] == CHAT])
@@ -286,7 +286,7 @@ def test_pending_changes_reach_linked_operators_and_need_a_second_approver(world
                   if b["text"].startswith("❌"))
     decided = run(world.channel.handle("merchant", tap(second["callback_data"], chat="5002",
                                                        user="9002")))
-    assert "rejected" in decided[-1]["body"]["text"]
+    assert "Rejected" in decided[-1]["body"]["text"]
     stale = run(world.channel.handle("merchant", tap(second["callback_data"], chat="5002",
                                                      user="9002")))
     assert stale[0]["body"]["text"] == "Refused"
@@ -309,3 +309,26 @@ def test_long_replies_split_between_paragraphs():
     paragraphs = ["**" + "a" * 1500 + "**"] * 4
     chunks = tg._chunks("\n\n".join(paragraphs))
     assert len(chunks) == 2 and all(c.count("**") % 2 == 0 for c in chunks)
+
+
+def test_approval_card_reads_in_plain_language(world):
+    [card] = world.channel.render("merchant", CHAT, [AgentEvent.change_update({
+        "change_id": "chg_1", "kind": "inventory_action", "target_type": "catalog_variant",
+        "target_id": GOOD_CHARGER, "status": "pending", "rationale": "Selling fast.",
+        "before": {"on_hand": 0, "reserved": 0},
+        "after": {"units": 21, "action": "restock", "location_id": "sd_loc_blr"}})])
+    text = card["body"]["text"]
+    assert text.startswith("📝 Restock ") and "with 21 units" in text
+    assert "In stock now: 0" in text and "After this: 21" in text
+    assert "Waiting for your approval" in text
+    for jargon in (GOOD_CHARGER, "catalog_variant", "sd_loc_blr", "{", "Status:"):
+        assert jargon not in text
+
+
+def test_telegram_turns_ask_the_agent_for_plain_language(world):
+    run(world.channel.handle("shopping", message("hi")))
+    from cartisan_agent.prompts import build_dynamic_context
+    assert "plain, friendly" in build_dynamic_context(
+        preferences=None, memory_facts=[], cart=None, page=None, channel="telegram")
+    assert "plain, friendly" not in build_dynamic_context(
+        preferences=None, memory_facts=[], cart=None, page=None)

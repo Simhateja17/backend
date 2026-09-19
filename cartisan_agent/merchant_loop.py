@@ -109,6 +109,7 @@ class CartisanMerchantRuntime(AgentRuntime):
         return build_merchant_context(
             operator_name=None,
             paytm_plan=session.paytm_plan,
+            channel=session.channel,
             store_context=store_context,
             memory_facts=list(facts or []),
             now=session.local_now(),

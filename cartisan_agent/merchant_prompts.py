@@ -105,6 +105,7 @@ def build_merchant_context(
     now: datetime | None = None,
     max_chars: int = 6000,
     store_context_max_chars: int = 2000,
+    channel: str = "web",
 ) -> str:
     """The per-request half, appended after the cache breakpoint and wrapped in the
     merchant fence. The store block has its own cap, so a verbose snapshot cannot
@@ -130,4 +131,7 @@ def build_merchant_context(
     payload["saved_memory"] = [memory_fact_payload(fact) for fact in memory_facts] or "none"
     if now is not None:
         payload["local_time"] = context_clock(now)
+    if channel == "telegram":
+        from .prompts import TELEGRAM_CHANNEL_NOTE
+        payload["channel"] = TELEGRAM_CHANNEL_NOTE
     return "# Merchant context\n\n" + MERCHANT_FENCE.fence_payload(payload, max_chars=max_chars)

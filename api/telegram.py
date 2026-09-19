@@ -314,7 +314,8 @@ class TelegramChannel:
         extra = ({"paytm_plan": paytm_plan_for(self.store, principal_id)}
                  if bot_kind == "merchant" else {})
         session = context_type(conversation_id=key, customer_id=principal_id,
-                               correlation_id=Correlation().correlation_id, **extra)
+                               correlation_id=Correlation().correlation_id,
+                               channel="telegram", **extra)
         messages.append({"role": "user", "content": text})
         events: list[AgentEvent] = []
         try:
@@ -401,10 +402,17 @@ class TelegramChannel:
         return []
 
     def _change(self, chat_id: str, change: dict) -> dict:
-        text = (f"Proposed {str(change.get('kind', '')).replace('_', ' ')} on "
-                f"{change.get('target_type')} {change.get('target_id') or ''}\n"
-                f"Status: {change.get('status')}\n{change.get('rationale') or ''}\n"
-                f"Before: {change.get('before')}\nAfter: {change.get('after')}")
+        """An approval card a shop owner can read at a glance: what, on which product,
+        and why — no ids, field names or raw documents."""
+        name = self._target_name(change.get("target_type"), change.get("target_id"))
+        headline, details = _describe_change(change.get("kind") or "", name,
+                                             change.get("before") or {}, change.get("after") or {})
+        status = _STATUS_WORDS.get(change.get("status") or "", str(change.get("status") or ""))
+        parts = [f"📝 {headline}", *details]
+        if change.get("rationale"):
+            parts.append(f"\nWhy: {change['rationale']}")
+        parts.append(f"\n{status}")
+        text = "\n".join(parts)
         buttons = None
         if change.get("status") == "pending" and change.get("change_id"):
             buttons = [[
@@ -414,6 +422,15 @@ class TelegramChannel:
                              {"change_id": change["change_id"], "decision": "rejected"}),
             ]]
         return _send(chat_id, text, buttons)
+
+    def _target_name(self, target_type: str | None, target_id: str | None) -> str:
+        if not target_id:
+            return "your store"
+        for table in ("catalog_variants", "catalog_products"):
+            rows = self.store.rows(f"SELECT title FROM {table} WHERE id=?", (target_id,))
+            if rows:
+                return rows[0]["title"]
+        return "this item" if target_type and "variant" in target_type else "your store"
 
     def _button(self, bot_kind: str, chat_id: str, text: str, action: str, args: dict) -> dict:
         action_id = f"tga_{secrets.token_hex(12)}"
@@ -490,7 +507,7 @@ class TelegramChannel:
             except (DecisionRefused, LookupError) as exc:
                 return [_answer(query_id, "Refused"), _send(chat_id, str(exc))]
             return [_answer(query_id, decided.get("status")),
-                    _send(chat_id, f"Change {decided.get('id')} is now {decided.get('status')}.")]
+                    _send(chat_id, _STATUS_WORDS.get(decided.get("status") or "", "Done."))]
 
         return [_answer(query_id, "That button is no longer valid.")]
 
@@ -535,6 +552,65 @@ class TelegramChannel:
             "INSERT INTO telegram_notifications (kind,ref_id,chat_id) VALUES (?,?,?) "
             "ON CONFLICT DO NOTHING", (kind, ref_id, chat_id))
         return getattr(cursor, "rowcount", 1) != 0
+
+
+_STATUS_WORDS = {
+    "pending": "⏳ Waiting for your approval",
+    "approved": "✅ Approved",
+    "applied": "✅ Approved and done",
+    "rejected": "❌ Rejected",
+    "failed": "⚠️ Approved, but it couldn't be applied — the numbers changed since it was proposed",
+    "superseded": "Replaced by a newer proposal",
+}
+
+
+def _rupees(minor: Any) -> str:
+    return f"₹{int(minor) / 100:,.0f}" if isinstance(minor, int) else "—"
+
+
+def _describe_change(kind: str, name: str, before: dict, after: dict) -> tuple[str, list[str]]:
+    if kind == "inventory_action":
+        units = after.get("units")
+        if isinstance(units, int) and units < 0:
+            headline = f"Remove {abs(units)} units of {name}"
+        else:
+            headline = f"Restock {name} with {units} units"
+        details = []
+        if isinstance(before.get("on_hand"), int):
+            details.append(f"In stock now: {before['on_hand']}")
+            if isinstance(units, int):
+                details.append(f"After this: {before['on_hand'] + units}")
+        return headline, details
+    if kind == "price_update":
+        return (f"Change the price of {name}",
+                [f"From {_rupees(before.get('amount_minor'))} to {_rupees(after.get('amount_minor'))}"])
+    if kind == "promotion":
+        value = after.get("discount_value")
+        off = f"{value}% off" if after.get("discount_kind") == "percentage" else f"{_rupees(value)} off"
+        details = []
+        if after.get("min_subtotal_minor"):
+            details.append(f"On orders above {_rupees(after['min_subtotal_minor'])}")
+        return f"Run a promotion: {off} on {name}", details
+    if kind == "campaign":
+        return f"Start a campaign for {name}", [f"Budget: {_rupees(after.get('budget_minor'))}"]
+    if kind == "listing_update":
+        details = []
+        if after.get("title"):
+            details.append(f"New title: {after['title']}")
+        if after.get("description"):
+            details.append("New description written")
+        if after.get("status"):
+            details.append(f"Listing will be {str(after['status']).replace('_', ' ')}")
+        return f"Update the listing for {name}", details
+    if kind == "loan_request":
+        return (f"Apply for a business loan of {_rupees(after.get('amount_minor'))}",
+                [f"Repay over {after.get('tenure_months')} months"])
+    if kind == "recovery_policy":
+        return ("Win back abandoned carts automatically",
+                [f"Offer {after.get('discount_percentage')}% off (up to "
+                 f"{_rupees(after.get('max_discount_minor'))})",
+                 f"Monthly budget: {_rupees(after.get('monthly_budget_minor'))}"])
+    return f"Proposed change: {kind.replace('_', ' ')} for {name}", []
 
 
 class LinkRefused(Exception):
