@@ -115,6 +115,19 @@ def _iso(moment: datetime) -> str:
     return moment.isoformat()
 
 
+def story_variant(line_key: str, variant_index: int) -> str:
+    """The variant a demo story names: the first edition of a line."""
+    return f"{SEED_PREFIX}prd_{line_key}_0_v{variant_index}"
+
+
+def _stock_overrides() -> dict[str, tuple[int, int, int]]:
+    overrides = {story_variant(key, index): stock
+                 for key, index, _units, stock, _why in domain.DEMAND_STORIES}
+    overrides.update({story_variant(key, index): stock
+                      for key, index, stock in domain.DEAD_STOCK})
+    return overrides
+
+
 class CommerceGenerator:
     def __init__(self, store: Store, *, seed: int = DEFAULT_SEED,
                  as_of: datetime | None = None) -> None:
@@ -193,6 +206,7 @@ class CommerceGenerator:
         self._capabilities()
         self._locations()
         variant_ids, line_variants = self._catalog()
+        self._markdowns()
         self._inventory(variant_ids)
         customer_ids = self._customers()
         self._promotions_and_campaigns()
@@ -387,10 +401,32 @@ class CommerceGenerator:
 
     # ---------------------------------------------------------- inventory
 
+    def _markdowns(self) -> None:
+        """Close the list price and open a promotional one, keeping list as compare-at."""
+        started = self.as_of - timedelta(days=10)
+        for key, variant_index, fraction in domain.MARKDOWNS:
+            variant_id = story_variant(key, variant_index)
+            rows = self.store.rows(
+                "SELECT id, amount_minor FROM variant_prices WHERE variant_id=? AND price_kind='list'",
+                (variant_id,))
+            if not rows:
+                continue
+            listed = int(rows[0]["amount_minor"])
+            self.store.execute(
+                "UPDATE variant_prices SET valid_to=? WHERE id=?", (_iso(started), rows[0]["id"]))
+            self.store.execute(
+                "INSERT INTO variant_prices (id,variant_id,currency,amount_minor,compare_at_minor,"
+                "price_kind,valid_from,valid_to) VALUES (?,?,?,?,?,?,?,?)",
+                (f"{SEED_PREFIX}prc_{variant_id}_md", variant_id, domain.CURRENCY,
+                 int(round(listed * fraction / 100)) * 100, listed, "promotional",
+                 _iso(started), None))
+            self.counts.add("variant_prices")
+
     def _inventory(self, variant_ids: list[str]) -> None:
         locations = [row[0] for row in self._location_rows()]
         movements, levels = [], []
         received_at = _iso(self.as_of - timedelta(days=HISTORY_DAYS))
+        overrides = _stock_overrides()
         for variant_id in variant_ids:
             # Roughly a fifth of the catalogue is thin or out of stock, so
             # availability questions and stock-out journeys have real subjects.
@@ -402,6 +438,10 @@ class CommerceGenerator:
                     quantity = self.rng.randint(0, 3)
                 else:
                     quantity = self.rng.randint(4, 60)
+                # Demo stories pin their stock; the draw above still happens so the
+                # rest of the catalogue is unchanged by adding or removing a story.
+                if variant_id in overrides:
+                    quantity = overrides[variant_id][index]
                 if quantity == 0:
                     levels.append((variant_id, location_id, 0, 0, received_at))
                     continue
@@ -480,7 +520,10 @@ class CommerceGenerator:
             "JOIN catalog_products p ON p.id = v.product_id")}
         stock = {(row["variant_id"], row["location_id"]): row["on_hand"] for row in
                  self.store.rows("SELECT variant_id,location_id,on_hand FROM inventory_levels")}
-        sellable = [v for v in variant_ids if any(
+        # Story variants get their sales only from their story, so their numbers read
+        # exactly as designed; dead stock gets none at all.
+        pinned = set(_stock_overrides())
+        sellable = [v for v in variant_ids if v not in pinned and any(
             stock.get((v, loc[0]), 0) > 0 for loc in self._location_rows())]
         pairings = self._pairings(line_variants)
 
@@ -499,6 +542,25 @@ class CommerceGenerator:
                 counter["n"] += 1
                 self._one_journey(day, counter["n"], sellable, customer_ids, prices,
                                   categories, pairings, buckets)
+
+        # Demo stories: paid journeys for one named variant, spread evenly across
+        # the thirty days before `as_of`. Numbered from 90000 so they never collide
+        # with the random journeys above.
+        story_index = 90000
+        for key, variant_index, units, _stock, _why in domain.DEMAND_STORIES:
+            variant_id = story_variant(key, variant_index)
+            remaining = units
+            order_number = 0
+            while remaining > 0:
+                quantity = 2 if order_number % 3 == 2 and remaining >= 2 else 1
+                remaining -= quantity
+                story_index += 1
+                # Newest order sits a day before `as_of`, oldest inside day 29.
+                offset = 1 + (order_number * 28) // max(1, units)
+                day = self.as_of - timedelta(days=offset)
+                self._one_journey(day, story_index, sellable, customer_ids, prices,
+                                  categories, pairings, buckets, force=(variant_id, quantity))
+                order_number += 1
 
         inserts = (
             ("conversations", "INSERT INTO conversations (id,principal_id,surface,created_at) VALUES (?,?,?,?)"),
@@ -591,8 +653,13 @@ class CommerceGenerator:
     def _one_journey(self, day: datetime, index: int, sellable: list[str],
                      customer_ids: list[str], prices: dict[str, int],
                      categories: dict[str, str], pairings: dict[str, list[str]],
-                     buckets: dict[str, list[tuple]]) -> None:
-        """One shopper's session: browse, maybe buy, maybe fail, maybe return."""
+                     buckets: dict[str, list[tuple]],
+                     force: tuple[str, int] | None = None) -> None:
+        """One shopper's session: browse, maybe buy, maybe fail, maybe return.
+
+        `force` is a demo story's (variant, quantity): that variant is the one bought,
+        without a cross-sell, and the order is always paid.
+        """
         rng = self.rng
         customer_id = rng.choice(customer_ids)
         suffix = f"{index:05d}"
@@ -609,6 +676,8 @@ class CommerceGenerator:
 
         # What they were shown.
         shown = rng.sample(sellable, min(4, len(sellable)))
+        if force:
+            shown = [force[0], *shown[:3]]
         presentation_id = f"{SEED_PREFIX}pres_{suffix}"
         buckets["presentations"].append((
             presentation_id, conversation_id, customer_id, "products", turn_id,
@@ -619,14 +688,14 @@ class CommerceGenerator:
                 prices.get(variant_id, 99900)))
 
         chosen = shown[0]
-        lines = [(chosen, 1)]
+        lines = [(chosen, force[1] if force else 1)]
 
         # One bounded cross-sell, presented separately, sometimes accepted. The
         # split is what makes attribution honest: a presented recommendation is
         # not revenue until the customer actually adds it (ADR 0019).
         recommendation_id = None
         accepted = False
-        partners = [p for p in pairings.get(chosen, []) if p in sellable]
+        partners = [] if force else [p for p in pairings.get(chosen, []) if p in sellable]
         if partners:
             partner = rng.choice(partners)
             rec_presentation = f"{SEED_PREFIX}pres_{suffix}_x"
@@ -645,7 +714,7 @@ class CommerceGenerator:
             if accepted:
                 lines.append((partner, 1))
 
-        if rng.random() < 0.28:
+        if rng.random() < 0.28 and not force:
             # Browsed and left. Recorded, because a session that produced nothing
             # is still evidence — and it is what conversion is measured against.
             buckets["commerce_events"].append((
@@ -676,7 +745,7 @@ class CommerceGenerator:
             buckets["checkout_stage_lines"].append((stage_id, variant_id, quantity, unit, unit * quantity))
 
         outcome = rng.random()
-        paid = outcome < 0.74
+        paid = outcome < 0.74 or force is not None
         cancelled = not paid and outcome < 0.90  # the rest stay pending_payment
 
         status = "paid" if paid else ("cancelled" if cancelled else "pending_payment")
@@ -756,7 +825,7 @@ class CommerceGenerator:
         for line_id, quantity in order_line_ids:
             buckets["fulfillment_lines"].append((fulfillment_id, line_id, quantity))
 
-        if delivered_yet and rng.random() < 0.07:
+        if delivered_yet and rng.random() < 0.07 and not force:
             buckets["refunds"].append((
                 f"{SEED_PREFIX}ref_{suffix}", order_id, attempt_id, total,
                 "Customer returned the item within the window", "completed",

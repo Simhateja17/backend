@@ -240,7 +240,7 @@ class CoreMerchantPort(MerchantPort):
                  "orders": "COUNT(DISTINCT o.id)"}[metric]
         rows = self.store.rows(
             f"SELECT {column} AS bucket{select_id}, {value} AS value, "
-            "COUNT(DISTINCT o.id) AS orders "
+            "COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(l.quantity),0) AS units "
             "FROM commerce_orders o "
             "JOIN commerce_order_lines l ON l.order_id = o.id "
             "JOIN catalog_variants v ON v.id = l.variant_id "
@@ -252,7 +252,8 @@ class CoreMerchantPort(MerchantPort):
         unit = {"revenue": "INR paise", "units": "units", "orders": "orders"}[metric]
         points = [
             MetricPoint(date=str(row["bucket"]), value=_number(row["value"]),
-                        orders=int(row["orders"]), bucket_id=row.get("bucket_id"))
+                        orders=int(row["orders"]), units=int(row["units"]),
+                        bucket_id=row.get("bucket_id"))
             for row in rows
         ]
         return MetricSeries(

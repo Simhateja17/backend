@@ -602,6 +602,7 @@ async def test_product_revenue_ranking_identifies_the_best_seller(world):
         "date": "Nimbus travel charger",
         "value": 3_498_600,
         "orders": 4,
+        "units": 14,
         "bucket_id": "sd_prod_charger",
     }
     assert series.points[1].bucket_id == "sd_prod_laptop"

@@ -397,6 +397,36 @@ LINES: tuple[Line, ...] = (
     ),
 )
 
+# Demo stories: a handful of variants given a deliberate stock and sales shape, so
+# every merchant edge case has a real subject instead of depending on the random
+# walk. Each names the first edition of a line and one of its variant values. Sales
+# land as ordinary paid journeys inside the last thirty days before `as_of`, which is
+# the window the merchant's cover and pricing reads use.
+#   (line key, variant index, units sold in the last 30 days,
+#    on-hand per location in LOCATIONS order, what the story demonstrates)
+DEMAND_STORIES: tuple[tuple[str, int, int, tuple[int, int, int], str], ...] = (
+    ("saree", 0, 60, (3, 3, 2), "Festive best seller with about four days of cover"),
+    ("sneakers", 0, 36, (4, 3, 3), "Steady seller just under the ten-day alert line"),
+    ("kurta_set", 0, 30, (0, 0, 0), "Best seller already out of stock everywhere"),
+    ("running_shoes", 0, 24, (0, 0, 7), "Selling well, but all remaining stock sits in Mumbai"),
+    ("oxford_shirt", 0, 45, (70, 70, 60), "Top seller with healthy stock: no alert"),
+)
+
+# Dead stock: deep inventory and no sales at all, the markdown / pricing-headroom
+# subject. These variants are kept out of the generated journeys entirely.
+#   (line key, variant index, on-hand per location)
+DEAD_STOCK: tuple[tuple[str, int, tuple[int, int, int]], ...] = (
+    ("blazer", 0, (50, 50, 50)),
+    ("block_heels", 1, (40, 30, 30)),
+)
+
+# A live markdown: a promotional price below list, with the list price shown as the
+# compare-at, so a pricing question has a discount history to read.
+#   (line key, variant index, promotional price as a fraction of list)
+MARKDOWNS: tuple[tuple[str, int, float], ...] = (
+    ("denim_jacket", 0, 0.8),
+)
+
 # Product-line adjectives, walked deterministically to give each SKU a distinct
 # name without a random word soup.
 EDITIONS: tuple[str, ...] = (

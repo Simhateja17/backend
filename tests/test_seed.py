@@ -494,3 +494,32 @@ def test_scenario_orders_are_labelled_as_test_mode(world):
         "SELECT DISTINCT origin FROM commerce_orders WHERE id NOT LIKE 'sd_%'")}
 
     assert origins == {"razorpay_test"}
+
+
+def test_demo_stories_have_the_stock_and_sales_they_promise(world):
+    """Every merchant edge case the demo leans on is built, not left to chance."""
+    from marketplace_backend.seed import domain
+    from marketplace_backend.seed.generator import story_variant
+
+    store = world["store"]
+
+    def on_hand(variant_id):
+        return [row["on_hand"] for row in store.rows(
+            "SELECT on_hand FROM inventory_levels WHERE variant_id=? ORDER BY location_id",
+            (variant_id,))]
+
+    def sold(variant_id):
+        rows = store.rows(
+            "SELECT COALESCE(SUM(l.quantity),0) AS n FROM commerce_order_lines l "
+            "JOIN commerce_orders o ON o.id=l.order_id "
+            "WHERE l.variant_id=? AND o.status='paid' AND o.origin='seeded'", (variant_id,))
+        return int(rows[0]["n"])
+
+    for key, index, units, stock, _why in domain.DEMAND_STORIES:
+        variant_id = story_variant(key, index)
+        assert sorted(on_hand(variant_id)) == sorted(stock), key
+        assert sold(variant_id) == units, key
+    for key, index, stock in domain.DEAD_STOCK:
+        variant_id = story_variant(key, index)
+        assert sum(on_hand(variant_id)) == sum(stock)
+        assert sold(variant_id) == 0
