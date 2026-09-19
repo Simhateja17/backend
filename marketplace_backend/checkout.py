@@ -56,7 +56,8 @@ class CheckoutRepository:
     def stage(self, *, customer_id: str, cart_id: str, cart_state_version: int,
               lines: list[dict], fulfillment_option: str, shipping_minor: int = 0,
               tax_minor: int = 0, discount_minor: int = 0, constraints_note: str | None = None,
-              minutes: int = STAGE_MINUTES, correlation: Correlation | None = None) -> dict:
+              minutes: int = STAGE_MINUTES, correlation: Correlation | None = None,
+              promotion_id: str | None = None) -> dict:
         """Build an immutable priced preview. Nothing is moved or held."""
         if not lines:
             raise ValueError("cannot stage a checkout with no lines")
@@ -79,11 +80,11 @@ class CheckoutRepository:
             tx.execute(
                 "INSERT INTO checkout_stages (id,cart_id,customer_id,cart_state_version,state,"
                 "currency,subtotal_minor,shipping_minor,tax_minor,discount_minor,total_minor,"
-                "fulfillment_option,constraints_note,expires_at,created_at) "
-                "VALUES (?,?,?,?,'staged','INR',?,?,?,?,?,?,?,?,?)",
+                "promotion_id,fulfillment_option,constraints_note,expires_at,created_at) "
+                "VALUES (?,?,?,?,'staged','INR',?,?,?,?,?,?,?,?,?,?)",
                 (stage_id, cart_id, customer_id, cart_state_version, subtotal, shipping_minor,
-                 tax_minor, discount_minor, total, fulfillment_option, constraints_note,
-                 expires, _now()))
+                 tax_minor, discount_minor, total, promotion_id, fulfillment_option,
+                 constraints_note, expires, _now()))
             for line in lines:
                 tx.execute(
                     "INSERT INTO checkout_stage_lines (stage_id,variant_id,quantity,unit_price_minor,"
@@ -172,11 +173,12 @@ class CheckoutRepository:
                 tx.execute(
                     "INSERT INTO commerce_orders (id,customer_id,stage_id,status,currency,subtotal_minor,"
                     "shipping_minor,tax_minor,discount_minor,total_minor,amount_paid_minor,origin,"
-                    "state_version,correlation_id,demo_run_id,created_at) "
-                    "VALUES (?,?,?,'pending_payment','INR',?,?,?,?,?,0,?,0,?,?,?)",
+                    "state_version,correlation_id,demo_run_id,promotion_id,created_at) "
+                    "VALUES (?,?,?,'pending_payment','INR',?,?,?,?,?,0,?,0,?,?,?,?)",
                     (order_id, customer_id, stage_id, stage["subtotal_minor"], stage["shipping_minor"],
                      stage["tax_minor"], stage["discount_minor"], stage["total_minor"],
-                     origin, correlation.correlation_id, correlation.demo_run_id, _now()))
+                     origin, correlation.correlation_id, correlation.demo_run_id,
+                     stage.get("promotion_id"), _now()))
                 for line in stage["lines"]:
                     tx.execute(
                         "INSERT INTO commerce_order_lines (id,order_id,variant_id,quantity,"

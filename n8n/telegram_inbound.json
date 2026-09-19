@@ -1,0 +1,355 @@
+{
+  "name": "Cartisan Telegram — inbound",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "name": "Shopping bot",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        200
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Cartisan Shopping Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "name": "Merchant bot",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        420
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Cartisan Merchant Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "Shopping context-0",
+              "name": "bot_kind",
+              "value": "shopping",
+              "type": "string"
+            },
+            {
+              "id": "Shopping context-1",
+              "name": "bot_token",
+              "value": "SHOPPING-BOT-TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "Shopping context-2",
+              "name": "backend_url",
+              "value": "https://YOUR-BACKEND",
+              "type": "string"
+            },
+            {
+              "id": "Shopping context-3",
+              "name": "secret",
+              "value": "SAME-AS-TELEGRAM_CHANNEL_SECRET",
+              "type": "string"
+            },
+            {
+              "id": "Shopping context-4",
+              "name": "raw",
+              "value": "={{ JSON.stringify($json) }}",
+              "type": "string"
+            },
+            {
+              "id": "Shopping context-5",
+              "name": "chat_id",
+              "value": "={{ $json.message?.chat?.id ?? $json.callback_query?.message?.chat?.id ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "Shopping context-6",
+              "name": "ts",
+              "value": "={{ Math.floor(Date.now() / 1000).toString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Shopping context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "Merchant context-0",
+              "name": "bot_kind",
+              "value": "merchant",
+              "type": "string"
+            },
+            {
+              "id": "Merchant context-1",
+              "name": "bot_token",
+              "value": "MERCHANT-BOT-TOKEN",
+              "type": "string"
+            },
+            {
+              "id": "Merchant context-2",
+              "name": "backend_url",
+              "value": "https://YOUR-BACKEND",
+              "type": "string"
+            },
+            {
+              "id": "Merchant context-3",
+              "name": "secret",
+              "value": "SAME-AS-TELEGRAM_CHANNEL_SECRET",
+              "type": "string"
+            },
+            {
+              "id": "Merchant context-4",
+              "name": "raw",
+              "value": "={{ JSON.stringify($json) }}",
+              "type": "string"
+            },
+            {
+              "id": "Merchant context-5",
+              "name": "chat_id",
+              "value": "={{ $json.message?.chat?.id ?? $json.callback_query?.message?.chat?.id ?? '' }}",
+              "type": "string"
+            },
+            {
+              "id": "Merchant context-6",
+              "name": "ts",
+              "value": "={{ Math.floor(Date.now() / 1000).toString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Merchant context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendChatAction",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, action: 'typing' }) }}",
+        "options": {}
+      },
+      "name": "Typing…",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "action": "hmac",
+        "type": "SHA256",
+        "value": "={{ $json.ts + '.' + $json.raw }}",
+        "dataPropertyName": "signature",
+        "secret": "={{ $json.secret }}",
+        "encoding": "hex"
+      },
+      "name": "Sign",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.backend_url }}/channels/telegram/{{ $json.bot_kind }}/cartisan",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Cartisan-Timestamp",
+              "value": "={{ $json.ts }}"
+            },
+            {
+              "name": "X-Cartisan-Signature",
+              "value": "={{ $json.signature }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.raw }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Cartisan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cartisan returns the exact Bot API calls to make; n8n only delivers them.\nconst token = $('Sign').first().json.bot_token;\nconst out = [];\nfor (const item of $input.all()) {\n  for (const m of item.json.messages || []) out.push({ json: { ...m, bot_token: token } });\n}\nreturn out;"
+      },
+      "name": "One item per Bot API call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/{{ $json.method }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Shopping bot": {
+      "main": [
+        [
+          {
+            "node": "Shopping context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merchant bot": {
+      "main": [
+        [
+          {
+            "node": "Merchant context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopping context": {
+      "main": [
+        [
+          {
+            "node": "Sign",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Typing…",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merchant context": {
+      "main": [
+        [
+          {
+            "node": "Sign",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Typing…",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign": {
+      "main": [
+        [
+          {
+            "node": "Cartisan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cartisan": {
+      "main": [
+        [
+          {
+            "node": "One item per Bot API call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per Bot API call": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

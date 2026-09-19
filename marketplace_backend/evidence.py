@@ -124,14 +124,16 @@ class Outbox:
             (message_id, topic, json.dumps(payload), correlation_id, _now(), _now()))
         return message_id
 
-    def claim(self, limit: int = 10) -> list[dict]:
+    def claim(self, limit: int = 10, topic: str | None = None) -> list[dict]:
         """Take due pending messages and mark them in flight, so two workers
-        cannot deliver the same effect twice."""
+        cannot deliver the same effect twice. A worker that handles one topic
+        passes it, so it never claims (and burns an attempt on) another's message."""
         claimed = []
+        topic_clause, topic_params = ("AND topic=? ", (topic,)) if topic else ("", ())
         with self.store.transaction() as tx:
             due = tx.rows(
                 "SELECT * FROM outbox_messages WHERE status='pending' AND available_at<=? "
-                "ORDER BY available_at LIMIT ?", (_now(), limit))
+                f"{topic_clause}ORDER BY available_at LIMIT ?", (_now(), *topic_params, limit))
             for message in due:
                 OUTBOX.check(message["status"], "in_flight")
                 tx.execute(

@@ -77,7 +77,7 @@ class PaymentLinkDispatcher:
     async def drain(self, limit: int = 10) -> list[dict]:
         """Deliver every due message, and report what happened to each."""
         results = []
-        for message in self.outbox.claim(limit=limit):
+        for message in self.outbox.claim(limit=limit, topic=self.topic):
             if message["topic"] != self.topic:
                 # Not ours. Put it back rather than burning an attempt on it.
                 self.outbox.failed(message["id"], "no handler for this topic")

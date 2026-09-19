@@ -475,7 +475,8 @@ create table if not exists merchant_changes (
   -- outside a conversation (a script, a scenario pack) still belongs in the queue.
   conversation_id text,
   kind text not null check (kind in
-    ('inventory_action', 'price_update', 'promotion', 'campaign', 'listing_update')),
+    ('inventory_action', 'price_update', 'promotion', 'campaign', 'listing_update',
+     'recovery_policy')),
   target_type text not null,
   target_id text,
   -- governed jsonb: the exact before/after documents shown on the approval surface.
@@ -498,6 +499,9 @@ create table if not exists merchant_approvals (
   operator_id text not null,
   decision text not null check (decision in ('approved', 'rejected')),
   note text,
+  -- Why, in a word the lessons can count (merchant memory). Optional.
+  reason_code text check (reason_code is null or reason_code in
+    ('margin_too_low', 'bad_timing', 'brand_policy', 'stock_risk', 'other')),
   policy_checks text,
   decided_at timestamptz not null default now()
 );
@@ -631,6 +635,79 @@ create index if not exists evidence_origin_idx on evidence_records (data_origin,
 create index if not exists evidence_demo_run_idx on evidence_records (demo_run_id, recorded_at);
 create index if not exists evidence_surface_idx on evidence_records (surface, recorded_at);
 """
+
+# The Telegram channel (n8n is the transport; this is the host's own state). Kept as
+# its own fragment so it ships as its own migration, and folded into CORE_DDL so
+# the SQLite schema the tests run against includes it.
+TELEGRAM_DDL = """
+-- ================================================== telegram channel
+
+-- Which conversation a chat is on. `/new` bumps the sequence; the transcript
+-- itself lives in `conversations`/`turns` like every other surface.
+create table if not exists telegram_chats (
+  bot_kind text not null check (bot_kind in ('shopping', 'merchant')),
+  chat_id text not null,
+  conversation_seq integer not null default 0,
+  primary key (bot_kind, chat_id)
+);
+
+-- A Telegram account bound to a verified Cartisan principal. Written only by the
+-- link-redemption path, which reads the principal from a Supabase session.
+create table if not exists telegram_links (
+  bot_kind text not null check (bot_kind in ('shopping', 'merchant')),
+  telegram_user_id text not null,
+  chat_id text not null,
+  principal_id text not null,
+  role text not null,
+  linked_at timestamptz not null default now(),
+  primary key (bot_kind, telegram_user_id)
+);
+
+-- Single-use, short-lived link tokens. Only the hash is stored.
+create table if not exists telegram_link_tokens (
+  token_hash text primary key,
+  bot_kind text not null,
+  telegram_user_id text not null,
+  chat_id text not null,
+  expires_at text not null,
+  redeemed_at text,
+  redeemed_by text
+);
+
+-- Telegram redelivers; each update is acted on once.
+create table if not exists telegram_updates (
+  bot_kind text not null,
+  update_id text not null,
+  received_at timestamptz not null default now(),
+  primary key (bot_kind, update_id)
+);
+
+-- Inline-button references. `callback_data` carries only this id; what the button
+-- does, and for whom, is read back from here.
+create table if not exists telegram_actions (
+  id text primary key,
+  bot_kind text not null,
+  chat_id text not null,
+  action text not null,
+  args text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Proactive messages already handed to the transport, so each goes out once.
+create table if not exists telegram_notifications (
+  kind text not null,
+  ref_id text not null,
+  chat_id text not null,
+  created_at timestamptz not null default now(),
+  primary key (kind, ref_id, chat_id)
+);
+"""
+
+CORE_DDL += TELEGRAM_DDL
+
+from .memory_schema import MEMORY_DDL, RECOVERY_DDL  # noqa: E402  (fragments, folded in like Telegram's)
+
+CORE_DDL += MEMORY_DDL + RECOVERY_DDL
 
 
 def table_names() -> tuple[str, ...]:

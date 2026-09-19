@@ -103,6 +103,7 @@ Each entry below is a flow whose rules are in the skill, not here. When a reques
 
 - Send calls that do not depend on each other's output in the same round: the searches for the two or three things one request names, or the detail lookups on the finalists. Every extra round is time the customer spends waiting.
 - Before calling a tool, check whether the answer is already in hand, in an earlier result or in the Session context block.
+- The Session context's available_catalogue is the live list of active product types in the database. Use it to decide what to look for: do not announce, search for, recommend, or offer a product type absent from that list merely because it would normally fit the request. Translate the customer's need into the closest listed product types, then use search_products to resolve their current variants, prices, and stock. If none of the listed types fits, say the catalogue has no clear match instead of inventing one.
 - The retailer description names the domain, not its inventory. For a question about what Cartisan carries, call search_products with an empty query for a broad browse, then name only categories and product types that result actually returned. A Browse or Shop suggestion chip must use an exact category label from that result; never offer a category merely because electronics stores commonly carry it.
 - Say that Cartisan does not carry something only after two searches this turn, the second worded more broadly and without the filter most likely to have emptied the first.
 - Compatibility comes only from check_compatibility. Never infer that two items work together from their specifications, their titles, their brands, or your own knowledge, and never soften or omit a blocking finding it returns. Its findings carry the catalogue's own explanations; use those words.
@@ -138,12 +139,23 @@ def build_dynamic_context(
     page: PageContext | None,
     now: datetime | None = None,
     max_chars: int = 6000,
+    memory_brief: dict[str, Any] | None = None,
+    catalogue_index: dict[str, list[str]] | None = None,
 ) -> str:
     """The per-request half, appended after the cache breakpoint and wrapped in the
     data fence. Only the hour of the clock is rendered: minutes would change these
     bytes, and so re-read the conversation, on nearly every turn."""
 
     payload: dict[str, Any] = {}
+    if catalogue_index:
+        payload["available_catalogue"] = {
+            "authority": (
+                "Live active products in Cartisan's database. Plan searches and recommendations "
+                "only from these product types; search_products remains authoritative for the "
+                "buyable variants, current price, and stock."
+            ),
+            "categories": catalogue_index,
+        }
     if preferences is not None:
         payload["customer"] = {
             "name": preferences.display_name,
@@ -151,6 +163,17 @@ def build_dynamic_context(
             "preferences": preferences.preferences,
         }
     payload["saved_memory"] = [memory_fact_payload(fact) for fact in memory_facts] or "none"
+    if memory_brief:
+        # Advisory only: what past visits suggest, never a price, stock level or
+        # compatibility verdict. Titles, not ids, so nothing here is a cart handle.
+        payload["memory_brief"] = {
+            "advisory": "From past visits. Use it to personalise questions and ranking; "
+                        "read prices, stock and compatibility from tools.",
+            **{key: memory_brief[key] for key in (
+                "top_categories", "liked_brands", "avoided_brands", "rejected",
+                "cognee_notes") if memory_brief.get(key)},
+            "recently_explored": [item["title"] for item in memory_brief.get("explored", [])[:4]],
+        }
     if cart is not None:
         payload["cart"] = {
             "state_version": cart.state_version,

@@ -172,6 +172,8 @@ class MerchantService:
             self._apply_promotion(tx, after)
         elif kind == "campaign":
             self._apply_campaign(tx, after)
+        elif kind == "recovery_policy":
+            self._apply_recovery_policy(tx, after, change["id"])
         else:  # unreachable: `stage` refuses an unknown kind
             raise DecisionRefused(f"no applier for change kind {kind!r}")
 
@@ -236,6 +238,21 @@ class MerchantService:
             (f"promo_{uuid4().hex[:12]}", after["code"], after["description"],
              after["discount_kind"], int(after["discount_value"]),
              int(after.get("min_subtotal_minor") or 0), iso_now()))
+
+    @staticmethod
+    def _apply_recovery_policy(tx: Any, after: dict, change_id: str) -> None:
+        """One active policy: the approved one replaces whatever was in force. Offers
+        already issued keep the terms they were issued under."""
+        now = iso_now()
+        tx.execute("UPDATE recovery_policies SET status='retired', retired_at=? WHERE status='active'",
+                   (now,))
+        tx.execute(
+            "INSERT INTO recovery_policies (id,status,abandon_after_minutes,min_cart_minor,"
+            "discount_percentage,max_discount_minor,cooldown_days,monthly_budget_minor,"
+            "offer_valid_hours,change_id,created_at) VALUES (?,'active',?,?,?,?,?,?,?,?,?)",
+            (f"rpol_{uuid4().hex[:12]}", after["abandon_after_minutes"], after["min_cart_minor"],
+             after["discount_percentage"], after["max_discount_minor"], after["cooldown_days"],
+             after["monthly_budget_minor"], after["offer_valid_hours"], change_id, now))
 
     @staticmethod
     def _apply_campaign(tx: Any, after: dict) -> None:

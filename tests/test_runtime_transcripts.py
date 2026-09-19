@@ -711,6 +711,11 @@ async def test_the_request_carries_the_cache_breakpoints(core):
     forced, auto = client.calls
     assert forced["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert "cache_control" not in forced["system"][1]
+    live_context = forced["system"][1]["text"]
+    assert '"available_catalogue"' in live_context
+    assert '"Computing": ["Aster 14 laptop"]' in live_context
+    assert '"Power and charging": ["Nimbus travel charger"]' in live_context
+    assert "action camera" not in live_context.lower()
     assert forced["tools"][-1]["cache_control"] == {"type": "ephemeral"}
     assert not _has_marker(forced["messages"])
     assert _has_marker(auto["messages"])

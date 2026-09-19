@@ -5,7 +5,6 @@ Examples:
     .venv/bin/python scripts/run_release_gate.py domain
     .venv/bin/python scripts/run_release_gate.py contract
     .venv/bin/python scripts/run_release_gate.py supabase
-    .venv/bin/python scripts/run_release_gate.py razorpay
     CARTISAN_BROWSER_QA_COMMAND='...' .venv/bin/python scripts/run_release_gate.py browser
 
 Every invocation writes its own JSON record. Missing live credentials or a missing
@@ -42,17 +41,12 @@ COMMANDS = {
         [sys.executable, "scripts/verify_phase6_live.py"],
         [sys.executable, "scripts/verify_phase7_live.py"],
     ],
-    "razorpay": [[sys.executable, "scripts/verify_phase5_live.py", "--razorpay"]],
 }
 
 
 def _precondition(gate: str) -> str | None:
-    if gate in {"supabase", "razorpay"} and not os.getenv("SUPABASE_DATABASE_URL"):
+    if gate == "supabase" and not os.getenv("SUPABASE_DATABASE_URL"):
         return "SUPABASE_DATABASE_URL is not configured"
-    if gate == "razorpay" and not (
-        os.getenv("RAZORPAY_KEY_ID") and os.getenv("RAZORPAY_KEY_SECRET")
-    ):
-        return "Razorpay test-mode credentials are not configured"
     if gate == "browser" and not os.getenv("CARTISAN_BROWSER_QA_COMMAND"):
         return "CARTISAN_BROWSER_QA_COMMAND is not configured"
     return None

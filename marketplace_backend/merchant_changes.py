@@ -34,7 +34,8 @@ from .state_machines import MERCHANT_CHANGE
 from .store import Store
 from .timeutil import now as _now
 
-KINDS = ("inventory_action", "price_update", "promotion", "campaign", "listing_update")
+KINDS = ("inventory_action", "price_update", "promotion", "campaign", "listing_update",
+         "recovery_policy")
 
 # Bounds re-checked at application time, not just at staging time, because the
 # world may have moved between the proposal and the operator's decision.
@@ -44,6 +45,11 @@ POLICY_BOUNDS = {
     "promotion": {"max_percentage": 30, "max_fixed_minor": 500_000},
     "campaign": {"max_budget_minor": 5_000_000},
     "listing_update": {"max_title_chars": 140, "max_description_chars": 1200},
+    # Cart recovery: the ceiling on what the deterministic worker may ever give away
+    # without a further approval (Q3).
+    "recovery_policy": {"max_percentage": 20, "max_discount_minor": 200_000,
+                        "max_monthly_budget_minor": 5_000_000, "min_abandon_minutes": 30,
+                        "min_cooldown_days": 7, "max_offer_valid_hours": 168},
 }
 
 LISTING_STATUSES = ("draft", "active", "discontinued")
@@ -307,6 +313,33 @@ class MerchantChangeRepository:
             if budget > limit:
                 raise PolicyViolation(
                     f"a budget of {budget} paise exceeds the {limit} paise bound")
+        elif kind == "recovery_policy":
+            bounds = POLICY_BOUNDS["recovery_policy"]
+            fields = ("abandon_after_minutes", "min_cart_minor", "discount_percentage",
+                      "max_discount_minor", "cooldown_days", "monthly_budget_minor",
+                      "offer_valid_hours")
+            for field in fields:
+                if not isinstance(after.get(field), int) or after[field] < 0:
+                    raise PolicyViolation(f"a recovery policy needs a non-negative integer {field}")
+            if not 1 <= after["discount_percentage"] <= bounds["max_percentage"]:
+                raise PolicyViolation(
+                    f"a recovery discount must be 1-{bounds['max_percentage']}%")
+            if not 0 < after["max_discount_minor"] <= bounds["max_discount_minor"]:
+                raise PolicyViolation(
+                    f"a recovery discount cap must be at most {bounds['max_discount_minor']} paise")
+            if after["monthly_budget_minor"] > bounds["max_monthly_budget_minor"]:
+                raise PolicyViolation(
+                    f"a monthly recovery budget of {after['monthly_budget_minor']} paise exceeds "
+                    f"the {bounds['max_monthly_budget_minor']} paise bound")
+            if after["abandon_after_minutes"] < bounds["min_abandon_minutes"]:
+                raise PolicyViolation(
+                    f"a cart counts as abandoned after at least {bounds['min_abandon_minutes']} minutes")
+            if after["cooldown_days"] < bounds["min_cooldown_days"]:
+                raise PolicyViolation(
+                    f"offers to one customer must be at least {bounds['min_cooldown_days']} days apart")
+            if not 1 <= after["offer_valid_hours"] <= bounds["max_offer_valid_hours"]:
+                raise PolicyViolation(
+                    f"an offer is valid for 1-{bounds['max_offer_valid_hours']} hours")
         elif kind == "listing_update":
             if not any(key in after for key in ("title", "description", "status")):
                 raise PolicyViolation(

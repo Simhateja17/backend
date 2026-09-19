@@ -18,6 +18,8 @@ the conversation's provenance and comes back on every turn.
 from __future__ import annotations
 
 import asyncio
+import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +41,8 @@ from .turns import TurnStore
 from .types import SessionContext, SessionState
 from .versions import PROMPT_VERSION
 
+logger = logging.getLogger(__name__)
+
 SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 
@@ -56,8 +60,13 @@ class CartisanShoppingRuntime(AgentRuntime):
         client: AsyncAnthropic | None = None,
         memory: MemoryRuntime | None = None,
         turns: TurnStore | None = None,
+        brief_reader: Callable[[str], dict[str, Any] | None] | None = None,
     ) -> None:
         config = config or CartisanAgentConfig()
+        self.store = store
+        # The customer's precomputed memory brief (host-owned, read from Postgres):
+        # a read that fails leaves the turn without it, never without an answer.
+        self.brief_reader = brief_reader
         skills = skills or (
             SkillRegistry.from_dir(skills_dir)
             if skills_dir and skills_dir.exists()
@@ -114,6 +123,8 @@ class CartisanShoppingRuntime(AgentRuntime):
         return build_dynamic_context(
             preferences=preferences,
             memory_facts=facts,
+            memory_brief=self._brief(session),
+            catalogue_index=self._catalogue_index(),
             cart=cart,
             page=session.page,
             now=session.local_now(),
@@ -146,6 +157,38 @@ class CartisanShoppingRuntime(AgentRuntime):
         return None
 
     # -- internals ----------------------------------------------------------------
+
+    def _brief(self, session: SessionContext) -> dict[str, Any] | None:
+        if self.brief_reader is None or not self.memory.enabled:
+            return None
+        try:
+            return self.brief_reader(session.customer_id)
+        except Exception:
+            logger.warning("memory brief read failed; the turn runs without it", exc_info=True)
+            return None
+
+    def _catalogue_index(self) -> dict[str, list[str]]:
+        """Return the active DB catalogue as a compact product-level map.
+
+        It guides planning only. Variants, current prices, and stock still come from
+        the normal catalogue tools before the agent can present or sell anything.
+        """
+        rows = self.store.rows(
+            "SELECT COALESCE(c.name, 'Other') AS category, p.title "
+            "FROM catalog_products p "
+            "LEFT JOIN catalog_categories c ON c.id = p.category_id "
+            "WHERE p.status = 'active' AND EXISTS ("
+            "SELECT 1 FROM catalog_variants v "
+            "WHERE v.product_id = p.id AND v.status = 'active') "
+            "ORDER BY category, p.title"
+        )
+        catalogue: dict[str, list[str]] = {}
+        for row in rows:
+            titles = catalogue.setdefault(str(row["category"]), [])
+            title = str(row["title"])
+            if title not in titles:
+                titles.append(title)
+        return catalogue
 
     async def _prefetch(self, session: SessionContext) -> tuple[Any, Any, list[Any]]:
         preferences, cart, facts = await asyncio.gather(

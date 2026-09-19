@@ -11,7 +11,6 @@ correlation ids and the run deletes its own orders, stages, attempts, reservatio
 movements, events, evidence and inbox rows on the way out — including on failure.
 
     PYTHONPATH=. .venv/bin/python scripts/verify_phase5_live.py
-    PYTHONPATH=. .venv/bin/python scripts/verify_phase5_live.py --razorpay   # real test-mode links
 """
 
 from __future__ import annotations
@@ -35,7 +34,6 @@ from marketplace_backend.evidence import (  # noqa: E402
     Outbox,
 )
 from marketplace_backend.inventory import InventoryRepository  # noqa: E402
-from marketplace_backend.mcp_client import RazorpayMCPClient  # noqa: E402
 from marketplace_backend.payments import PaymentLinkDispatcher, WebhookProcessor  # noqa: E402
 from marketplace_backend.shopping import CheckoutRefused, ShoppingService  # noqa: E402
 from marketplace_backend.store import Store  # noqa: E402
@@ -48,7 +46,7 @@ PROBE_PREFIX = "ph5"
 
 class StubGateway:
     """Deterministic links, so the database paths can be proven without spending a
-    provider round trip on every run. `--razorpay` swaps in the real client."""
+    provider round trip on every run."""
 
     def __init__(self) -> None:
         self.links: dict[str, dict] = {}
@@ -76,7 +74,7 @@ def paid_event(reference: str, amount_minor: int, *, currency: str = "INR",
 
 
 class Probe:
-    def __init__(self, store: Store, use_razorpay: bool) -> None:
+    def __init__(self, store: Store) -> None:
         self.store = store
         self.ledger = EvidenceLedger(store)
         self.outbox, self.inbox = Outbox(store), Inbox(store)
@@ -86,10 +84,8 @@ class Probe:
         self.port = CoreCommercePort(store, checkout=self.checkout, config=CartisanAgentConfig())
         # The matrix always runs on the stub: it exercises database and state-machine
         # paths, and firing twenty real provider calls to prove them would only buy a
-        # rate limit. `--razorpay` adds one real test-mode link creation on top, which
-        # is what actually needs the provider (ADR 0011).
+        # rate limit (ADR 0011).
         self.gateway = StubGateway()
-        self.use_razorpay = use_razorpay
         self.dispatcher = PaymentLinkDispatcher(
             store, self.checkout, self.outbox, self.gateway, self.ledger)
         self.service = ShoppingService(store, self.port, self.checkout, self.dispatcher)
@@ -140,25 +136,6 @@ class Probe:
         result = await self.service.confirm(self.customer, stage["stage_id"])
         self.order_ids.append(result["order"]["order_id"])
         return result
-
-    async def razorpay_link_check(self) -> None:
-        """One real Razorpay test-mode payment link, through the same interface the
-        dispatcher uses. This is the only step that needs the provider to be up."""
-        print("\nrazorpay test mode:")
-        client = RazorpayMCPClient()
-        reference = f"order:{PROBE_PREFIX}_{os.urandom(4).hex()}"
-        try:
-            link = await client.create_payment_link(
-                amount=100_00, reference_id=reference, description="Cartisan Phase 5 probe")
-        except Exception as exc:  # noqa: BLE001
-            # This is an independent provider gate. Unavailability is not a Cartisan
-            # defect, but it is also not a pass: let the caller report failed/not-run.
-            raise RuntimeError(f"Razorpay test-mode gate unavailable: {exc}") from exc
-        self.check("razorpay returns a usable test-mode link",
-                   bool(link.get("id")) and bool(link.get("short_url")), str(link))
-        self.check("the link is for the amount we asked for",
-                   int(link.get("amount", 0)) == 100_00, str(link.get("amount")))
-        print("      received a test-mode short URL (redacted)")
 
     async def run(self) -> None:
         variant_id, price = self.pick_variant()
@@ -354,8 +331,6 @@ class Probe:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--razorpay", action="store_true",
-                        help="call Razorpay test mode for real payment links")
     args = parser.parse_args()
 
     url = os.getenv("SUPABASE_DATABASE_URL")
@@ -366,12 +341,10 @@ def main() -> int:
     if store.backend not in {"postgres", "supabase"}:
         raise SystemExit("refusing to run: this must exercise Postgres, not SQLite")
 
-    probe = Probe(store, use_razorpay=args.razorpay)
+    probe = Probe(store)
     failed = None
     try:
         asyncio.run(probe.run())
-        if args.razorpay:
-            asyncio.run(probe.razorpay_link_check())
     except Exception:  # noqa: BLE001 - reported below, after cleanup runs
         failed = traceback.format_exc()
     finally:

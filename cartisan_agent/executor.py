@@ -56,7 +56,13 @@ CARTISAN_MEMORY_EXTRACTION_PROMPT = MEMORY_EXTRACTION_TEMPLATE.format(
     live_key_rule=(
         "Keep the customer's one live project (a desk setup, a home theatre, a gift) as a "
         'single fact under the key "current_project", naming what it is for and its '
-        "budget; a new project replaces it."
+        "budget; a new project replaces it. Every other key is one of these typed keys, "
+        "and a fact that fits none of them is not recorded: device_owned:<kind> (phone, "
+        "laptop, tablet, watch, tv, console), brand_affinity:<brand> (value says liked or "
+        "avoided and why), budget:<category>, use_case (gym, travel, work from home), "
+        "gift_context (recipient type and occasion, never a name), rejected_item:<product>. "
+        'When the customer says a fact is no longer true ("I sold my Pixel"), record its '
+        'key with the value "none".'
     ),
     excluded=(
         "anything that came from catalogue records, results, or Cartisan's own terms; the "

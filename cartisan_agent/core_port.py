@@ -16,6 +16,7 @@ a second cart authority — both write the same `customer_carts` row and the sam
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from marketplace_backend.carts import ConflictError, IdempotencyLedger
@@ -77,6 +78,10 @@ class CoreCommercePort(CommercePort):
         self.config = config or CartisanAgentConfig()
         self.idempotency = IdempotencyLedger(store)
         self.events = CommerceEventLog(store)
+        # The host may attach cart recovery: given a customer and a subtotal it returns
+        # the discount and promotion their live, approved offer grants. Computed from
+        # stored terms at staging — no client or model supplies a discount.
+        self.stage_discount: Callable[[str, int], tuple[int, str | None]] | None = None
 
     # -- catalogue ------------------------------------------------------------
 
@@ -351,8 +356,14 @@ class CoreCommercePort(CommercePort):
         request = {"cart_id": cart.cart_id, "cart_state_version": cart.state_version,
                    "fulfillment_option": fulfillment_option, "note": note}
 
+        subtotal = sum(line.quantity * line.unit_price_minor for line in cart.lines)
+        discount, promotion_id = (
+            self.stage_discount(session.customer_id, subtotal) if self.stage_discount else (0, None))
+
         def effect() -> dict:
             stage = self.checkout.stage(
+                discount_minor=discount,
+                promotion_id=promotion_id,
                 customer_id=session.customer_id,
                 cart_id=cart.cart_id,
                 cart_state_version=cart.state_version,
@@ -700,8 +711,11 @@ class CoreCommercePort(CommercePort):
 
     @staticmethod
     def _bump(tx: Any, cart_id: str) -> None:
+        # `updated_at` is when the shopper last touched the cart; cart recovery reads it
+        # to decide a cart was left, so every mutation moves it.
         tx.execute(
-            "UPDATE customer_carts SET state_version = state_version + 1 WHERE id = ?", (cart_id,)
+            "UPDATE customer_carts SET state_version = state_version + 1, updated_at = ? "
+            "WHERE id = ?", (iso_now(), cart_id)
         )
 
 

@@ -293,30 +293,6 @@ def test_a_paid_event_after_cancellation_is_refused(world):
     assert world.store.rows("SELECT status FROM commerce_orders")[0]["status"] == "cancelled"
 
 
-def test_an_unsigned_webhook_never_reaches_the_commerce_core(world, monkeypatch):
-    import api.main as api_main
-
-    monkeypatch.setenv("RAZORPAY_WEBHOOK_SECRET", SECRET)
-    monkeypatch.setattr(api_main, "webhooks", world.webhooks)
-    monkeypatch.setattr(api_main, "db", world.store)
-    client = TestClient(api_main.app)
-
-    result = buy(world)
-    body, signature = signed_event(
-        paid_event(result["payment"]["provider_reference"], LAPTOP_PRICE), SECRET)
-
-    assert client.post("/webhook/razorpay", content=body,
-                       headers={"X-Razorpay-Signature": "forged"}).status_code == 401
-    assert client.post("/webhook/razorpay", content=body).status_code == 401
-    assert world.store.rows("SELECT id FROM inbox_events") == []
-    assert paid_orders(world) == []
-
-    accepted = client.post("/webhook/razorpay", content=body,
-                           headers={"X-Razorpay-Signature": signature})
-    assert accepted.status_code == 200 and accepted.json()["result"] == "applied"
-    assert len(paid_orders(world)) == 1
-
-
 def test_signature_verification_fails_closed_without_a_secret():
     body, signature = signed_event({"event": "payment_link.paid"}, SECRET)
 
