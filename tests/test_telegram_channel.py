@@ -231,6 +231,31 @@ def test_checkout_needs_a_link_and_paid_is_announced_only_after_the_webhook(worl
     assert world.channel.relay() == [], "each notification goes out once"
 
 
+def test_telegram_sends_the_paytm_simulator_link_and_announces_its_payment(tmp_path, monkeypatch):
+    from marketplace_backend.sim_gateway import SimulatedCheckout, SimulatedPaytmGateway
+
+    monkeypatch.setenv("FRONTEND_URL", "https://shop.test")
+    store = build_merchant_store(tmp_path)
+    shop, merchant = build_shopping(store, gateway=SimulatedPaytmGateway()), build_merchant(store)
+    channel = tg.TelegramChannel(
+        store, shopping_runtime=FakeRuntime(), merchant_runtime=FakeRuntime(),
+        shopping_service=shop.service, merchant_service=merchant.service,
+        shopping_sessions=({}, {}), merchant_sessions=({}, {}),
+        session_types={"shopping": (SessionContext, SessionState),
+                       "merchant": (MerchantSessionContext, MerchantSessionState)},
+        link_base_url="https://shop.test")
+    world = type("World", (), dict(store=store, shop=shop, channel=channel))
+
+    run(shop.service.add(CUSTOMER, LAPTOP, 1))
+    link(world, "shopping", CUSTOMER_P)
+    reply = run(channel.handle("shopping", tap(checkout_button(world)["callback_data"])))
+    url = buttons(reply)[0]["url"]
+    assert url.startswith("https://shop.test/pay?link=simlink_")
+
+    SimulatedCheckout(store, shop.webhooks).complete(url.split("link=")[1], method="upi", succeed=True)
+    assert any("Payment verified" in d["body"]["text"] for d in channel.relay())
+
+
 # ------------------------------------------------------------------ approvals
 
 

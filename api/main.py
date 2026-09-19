@@ -41,6 +41,11 @@ from marketplace_backend.recovery import (
     order_recovery_actions,
 )
 from marketplace_backend.shopping import CheckoutRefused, ShoppingService
+from marketplace_backend.sim_gateway import (
+    SimulatedCheckout,
+    SimulatedCheckoutError,
+    SimulatedPaytmGateway,
+)
 from cartisan_agent.outcomes import Unavailable
 from cartisan_agent.types import PageContext
 from marketplace_backend.store import Store
@@ -124,21 +129,13 @@ commerce = CommerceServices(
 # dispatcher asks a payment provider for a link, and the processor is the single
 # path from a verified provider event to a paid order (ADR 0005, ADR 0011, ADR 0013).
 #
-# Razorpay has been unplugged. Until a replacement provider (the planned Paytm
-# simulation) is wired in here, the dispatcher has no gateway: a confirmed order's
-# link request fails, is recorded, and stays in the outbox to retry once one exists.
-class GatewayNotConnected(RuntimeError):
-    pass
-
-
-class _UnpluggedGateway:
-    async def create_payment_link(self, *, amount: int, reference_id: str, description: str) -> dict:
-        raise GatewayNotConnected("No payment provider is connected")
-
-
-dispatcher = PaymentLinkDispatcher(db, checkout_repo, outbox, _UnpluggedGateway(), ledger)
+# The provider is the simulated Paytm gateway: links point at the hosted checkout
+# page (`/pay?link=<link id>`), and that page's answer goes through `webhooks` like any
+# provider event would. No real money moves.
+dispatcher = PaymentLinkDispatcher(db, checkout_repo, outbox, SimulatedPaytmGateway(), ledger)
 webhooks = WebhookProcessor(db, checkout_repo, inbox, ledger)
 shopping = ShoppingService(db, core_port, checkout_repo, dispatcher, ledger)
+simulated_checkout = SimulatedCheckout(db, webhooks)
 
 # Phase 7. Three readers and one set of controls, all on records that already
 # existed and had no surface: the evidence ledger, the runtime's own counters, and
@@ -1050,6 +1047,38 @@ def recovery_cancel_order(order_id: str, body: CancelOrderRequest):
         return recovery.cancel_order(order_id, reason=body.reason)
     except RecoveryRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class SimulatedPaymentRequest(BaseModel):
+    method: str
+    outcome: str = "success"
+
+
+@app.get("/pay/sim/{link_id}")
+def simulated_payment_page(link_id: str):
+    """What the hosted checkout page shows for one payment link."""
+    try:
+        return simulated_checkout.summary(link_id)
+    except SimulatedCheckoutError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/pay/sim/{link_id}")
+def simulated_payment_submit(link_id: str, body: SimulatedPaymentRequest):
+    """The customer paid (or the payment failed) on the simulated gateway. The
+    outcome reaches the order only through the webhook processor."""
+    if body.outcome not in {"success", "failure"}:
+        raise HTTPException(400, "outcome must be 'success' or 'failure'")
+    try:
+        outcome = simulated_checkout.complete(
+            link_id, method=body.method, succeed=body.outcome == "success")
+    except SimulatedCheckoutError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if outcome.get("result") == "applied" and outcome.get("order_id") and body.outcome == "success":
+        _remember_purchase(outcome["order_id"])
+    return {"ok": True, **outcome}
 
 
 def _remember_purchase(order_id: str) -> None:

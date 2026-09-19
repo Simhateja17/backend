@@ -12,7 +12,7 @@ Everything with authority stays on this side of the line:
   * Each Telegram `update_id` is acted on once, so a redelivery cannot add a second
     cart line or confirm a checkout twice.
   * Payment is never announced from here. "Paid" is pushed by the relay only after
-    the verified Razorpay webhook has moved the order (ADR 0013).
+    the verified payment (Paytm simulator) has moved the order (ADR 0013).
 """
 
 from __future__ import annotations
@@ -411,7 +411,7 @@ class TelegramChannel:
                     chat_id, "Your order is placed and stock is held, but the payment link "
                     "isn't ready yet. I'll send it as soon as it is.")]
             return [_answer(query_id), _send(
-                chat_id, f"Order placed. Pay securely with Razorpay — I'll confirm here once "
+                chat_id, f"Order placed. Pay securely with Paytm — I'll confirm here once "
                 "the payment is verified.",
                 [[_url_button("Pay now", payment["pay_url"])]])]
 
