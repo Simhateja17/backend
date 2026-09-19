@@ -47,8 +47,8 @@ MONSOON_RULE = {
 
 # The scopes the descriptions have always named.
 SCOPES = {
-    "sd_promo_AUDIO500": "sd_cat_audio_personal",
-    "sd_promo_SMARTHOME15": "sd_cat_smart_home",
+    "sd_promo_FESTIVE500": "sd_cat_ethnic",
+    "sd_promo_STRIDE15": "sd_cat_footwear",
 }
 
 

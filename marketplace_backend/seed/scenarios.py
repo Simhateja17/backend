@@ -189,13 +189,13 @@ def _last_unit_contention(ctx: ScenarioContext) -> dict:
     ctx.store.execute(
         "INSERT INTO catalog_products (id,sku_root,title,brand,category_id,description,status,origin,"
         "created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-        (f"{SEED_PREFIX}prd_scarce_0", "SCARCE-00", "Kestrel Halo Limited Speaker", "Kestrel",
-         f"{SEED_PREFIX}cat_audio_home", "A deliberately scarce SKU for the contention scenario.",
+        (f"{SEED_PREFIX}prd_scarce_0", "SCARCE-00", "Kestrel Halo Limited Tote", "Kestrel",
+         f"{SEED_PREFIX}cat_accessories", "A deliberately scarce SKU for the contention scenario.",
          "active", "seeded", ctx.as_of.isoformat()))
     ctx.store.execute(
         "INSERT INTO catalog_variants (id,product_id,sku,title,options,status,created_at) "
         "VALUES (?,?,?,?,?,?,?)",
-        (variant, f"{SEED_PREFIX}prd_scarce_0", "SCARCE-00-0", "Kestrel Halo Limited Speaker — Standard",
+        (variant, f"{SEED_PREFIX}prd_scarce_0", "SCARCE-00-0", "Kestrel Halo Limited Tote — Standard",
          json.dumps({"size": "Standard"}), "active", ctx.as_of.isoformat()))
     ctx.store.execute(
         "INSERT INTO variant_prices (id,variant_id,currency,amount_minor,price_kind,valid_from) "
@@ -268,12 +268,12 @@ def _webhook_replay_deduplicated(ctx: ScenarioContext) -> dict:
 
 
 def _incompatible_accessory_blocked(ctx: ScenarioContext) -> dict:
-    """A case cut for one handset, checked against another. Refused with the reason."""
+    """A blouse tailored to one outfit set, checked against another. Refused with the reason."""
     correlation = ctx.correlation()
     rows = ctx.store.rows(
         "SELECT r.variant_id, r.value_text, r.explanation FROM variant_requirements r "
         "WHERE r.capability_id=? ORDER BY r.variant_id LIMIT 1",
-        (f"{SEED_PREFIX}cap_device_model",))
+        (f"{SEED_PREFIX}cap_outfit_set",))
     if not rows:
         return {"available": False}
     requirement = rows[0]
@@ -282,7 +282,7 @@ def _incompatible_accessory_blocked(ctx: ScenarioContext) -> dict:
         reason=requirement["explanation"], outcome="blocked",
         target_type="catalog_variant", target_id=requirement["variant_id"],
         policy_checks={"required_model": requirement["value_text"],
-                       "customer_device": "Meridian Edge 8"},
+                       "customer_outfit": "Ikat Monsoon"},
         data_origin="seeded", correlation=correlation)
     return {"variant_id": requirement["variant_id"], "required_model": requirement["value_text"],
             "correlation_id": correlation.correlation_id}

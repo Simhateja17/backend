@@ -58,7 +58,7 @@ MAX_ALERTS = 50
 MAX_CHANGES = 50
 
 MERCHANT_MEMORY_EXTRACTION_PROMPT = MEMORY_EXTRACTION_TEMPLATE.format(
-    keeper="an electronics and smart-lifestyle retailer",
+    keeper="an apparel and fashion retailer",
     subject="one merchant operator",
     occasions="working sessions",
     speaker="the operator",

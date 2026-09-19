@@ -12,7 +12,7 @@ are the point of persisting turns at all:
   and execution ids, the prompt and skill versions, and the outcome — blocked,
   unavailable and failed included (ADR 0023). One lineage, `correlation_id`, ties the
   browser's request to the model call, the tool, the database work, and later the
-  Razorpay attempt.
+  Paytm attempt.
 
 Turns are serialized per conversation and concurrent across principals: the lock is
 keyed by conversation, and `begin` refuses a second turn while one is live.

@@ -30,7 +30,7 @@ def build_merchant_static_system(config: MerchantAgentConfig, skills: SkillRegis
 
     approval = config.approval_surface
 
-    return f"""You are {config.assistant_name} for {config.brand_name}, an Indian consumer-electronics and smart-lifestyle retailer, working with the operator inside their back-office portal. Answer with short text plus the components your presentation tools render. Your voice is {config.brand_voice}.
+    return f"""You are {config.assistant_name} for {config.brand_name}, an Indian apparel and fashion retailer, working with the operator inside their back-office portal. Answer with short text plus the components your presentation tools render. Your voice is {config.brand_voice}.
 
 # How you work
 

@@ -266,7 +266,7 @@ class CommerceGenerator:
                 # differences to point at instead of price being the only signal.
                 tier_fraction = edition_index / span
 
-                model = domain.DEVICE_MODELS[edition_index % len(domain.DEVICE_MODELS)]
+                model = domain.OUTFIT_SETS[edition_index % len(domain.OUTFIT_SETS)]
                 for value_index, value in enumerate(line.variant_values):
                     variant_id = f"{product_id}_v{value_index}"
                     variant_ids.append(variant_id)
@@ -316,7 +316,7 @@ class CommerceGenerator:
     def _editions_for(self, line: domain.Line) -> list[str]:
         """How many SKUs this line carries. Deterministic in the line's own name.
 
-        Five to eight editions across twenty-seven lines, each with two or three
+        Five to eight editions across thirty-four lines, each with two or three
         variant values, puts the catalogue inside the 300-500 SKU band the
         architecture asks for — with the depth coming from real within-line choice
         rather than padding.
@@ -357,16 +357,12 @@ class CommerceGenerator:
                 rows.append((variant_id, capability, None, value, None))
             else:
                 rows.append((variant_id, capability, str(value), None, None))
-        # Accessories cut for one handset advertise which handset that is, so a
+        # Coordinates tailored to one outfit set advertise which set that is, so a
         # compatibility check has something concrete on both sides.
-        if line.category == "cat_cases":
-            rows.append((variant_id, f"{SEED_PREFIX}cap_device_model", model, None, None))
-        if line.key == "monitor_arm" or line.key == "monitor":
-            rows.append((variant_id, f"{SEED_PREFIX}cap_mount", "vesa_100", None, None))
-        if line.key in {"smartwatch", "watch_strap"}:
-            rows.append((variant_id, f"{SEED_PREFIX}cap_mount", "watch_22mm", None, None))
-        if line.key in {"air_purifier", "purifier_filter"}:
-            rows.append((variant_id, f"{SEED_PREFIX}cap_mount", "filter_r400", None, None))
+        if line.category == domain.MATCHED_CATEGORY:
+            rows.append((variant_id, f"{SEED_PREFIX}cap_outfit_set", model, None, None))
+        if line.key in domain.MOUNTS:
+            rows.append((variant_id, f"{SEED_PREFIX}cap_mount", domain.MOUNTS[line.key], None, None))
         # De-duplicate: a line may both declare and be given the same capability.
         seen, unique = set(), []
         for row in rows:
@@ -386,7 +382,7 @@ class CommerceGenerator:
             rows.append((
                 f"{SEED_PREFIX}req_{variant_id}_{index}", variant_id, f"{SEED_PREFIX}{cap_id}",
                 operator, text, numeric, "blocking",
-                explanation.replace("one phone model", f"the {model}") if value is None else explanation))
+                explanation.replace("one outfit set", f"the {model} set") if value is None else explanation))
         return rows
 
     # ---------------------------------------------------------- inventory

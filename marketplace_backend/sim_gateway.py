@@ -35,7 +35,10 @@ def _secret() -> bytes:
 
 
 def _frontend_url() -> str:
-    return os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+    """Where the hosted page lives. Production already names its frontend for the
+    Telegram link page, so that is the fallback before localhost."""
+    url = os.getenv("FRONTEND_URL") or os.getenv("TELEGRAM_LINK_BASE_URL") or "http://localhost:3000"
+    return url.rstrip("/")
 
 
 def link_id_for(reference_id: str) -> str:

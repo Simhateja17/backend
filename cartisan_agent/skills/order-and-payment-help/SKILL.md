@@ -6,7 +6,7 @@ description: The customer asks where an order is, whether a payment went through
 1. Start from `get_orders`, or `get_order_status` when they named an order.
 2. Read `payment_state`, not `status`, when answering whether they have paid. Only
    `paid` means paid. `payment_verification_pending` means Cartisan is waiting on
-   Razorpay and has not confirmed anything yet — say exactly that, and do not reassure
+   Paytm and has not confirmed anything yet — say exactly that, and do not reassure
    them that it has gone through.
 3. Answer with `present_order_status`, one card per order in flight.
 
@@ -16,5 +16,5 @@ create a new link, cancel the order, or issue a refund; say who does and stop th
 
 If the customer says they paid but the order does not show it, do not take their word as
 the answer and do not promise it will settle. Say what the record shows, that Cartisan
-verifies payments against Razorpay before marking an order paid, and offer to check the
+verifies payments against Paytm before marking an order paid, and offer to check the
 order again.

@@ -429,7 +429,7 @@ async def _enrich_checkout(payload: CheckoutPayload, context: EnrichmentContext)
         "constraints_note": stage.constraints_note,
         "expires_at": stage.expires_at,
         # The card is a preview. Confirmation, reservation, the internal order and the
-        # Razorpay handoff are the host's, after the customer taps (ADR 0005, ADR 0012).
+        # Paytm handoff are the host's, after the customer taps (ADR 0005, ADR 0012).
         "confirm_action": "host_confirm_checkout",
     }
 

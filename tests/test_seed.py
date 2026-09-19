@@ -104,7 +104,7 @@ def test_history_is_anchored_to_as_of_not_to_the_clock(tmp_path):
 
 
 def test_the_catalogue_is_in_the_expected_size_band(world):
-    """300-500 SKUs of genuine electronics and smart-lifestyle depth."""
+    """300-500 SKUs of genuine apparel and fashion depth."""
     counts = world["world"].counts
 
     assert 300 <= counts["catalog_variants"] <= 500
@@ -130,13 +130,13 @@ def test_specifications_are_typed_not_free_text(world):
     """A numeric spec is queryable as a number, which is what makes filtering real."""
     store = world["store"]
 
-    powerful = store.rows(
-        "SELECT variant_id FROM variant_specs WHERE spec_key='output_watts' AND value_numeric >= 100")
+    heavyweight = store.rows(
+        "SELECT variant_id FROM variant_specs WHERE spec_key='gsm' AND value_numeric >= 200")
     mistyped = store.rows(
-        "SELECT variant_id FROM variant_specs WHERE spec_key='battery_hours' AND value_numeric IS NULL")
+        "SELECT variant_id FROM variant_specs WHERE spec_key='gsm' AND value_numeric IS NULL")
 
-    assert powerful, "no numeric spec rows to filter on"
-    assert mistyped == [], "battery_hours must always be numeric"
+    assert heavyweight, "no numeric spec rows to filter on"
+    assert mistyped == [], "gsm must always be numeric"
 
 
 def test_compatibility_rules_are_structured_and_explained(world):
