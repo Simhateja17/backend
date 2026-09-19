@@ -118,7 +118,7 @@ class TelegramChannel:
         self.link_base_url = link_base_url.rstrip("/")
         self.require_second_approver = require_second_approver
 
-    # ------------------------------------------------------------ identity
+    # ------------------------------------------------------------  identity
 
     def linked_principal(self, bot_kind: str, telegram_user_id: str) -> str | None:
         rows = self.store.rows(
