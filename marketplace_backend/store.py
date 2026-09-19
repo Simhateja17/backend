@@ -79,7 +79,8 @@ class Store:
         CREATE TABLE IF NOT EXISTS customers(id TEXT PRIMARY KEY, email TEXT NOT NULL, display_name TEXT,
           origin TEXT NOT NULL DEFAULT 'live_app', created_at TEXT NOT NULL DEFAULT (datetime('now')));
         CREATE TABLE IF NOT EXISTS merchant_operators(id TEXT PRIMARY KEY, email TEXT NOT NULL,
-          display_name TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+          display_name TEXT, paytm_plan TEXT NOT NULL DEFAULT 'pos' CHECK (paytm_plan IN ('pos','payments')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')));
         CREATE TABLE IF NOT EXISTS customer_carts(id TEXT PRIMARY KEY, customer_id TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','checked_out','abandoned')),
           state_version INTEGER NOT NULL DEFAULT 0,

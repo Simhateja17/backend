@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
+import re
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
@@ -27,6 +29,7 @@ from typing import Any
 from commerce_common.streaming import AgentEvent
 from marketplace_backend.carts import ConflictError
 from marketplace_backend.evidence import Correlation
+from marketplace_backend.identity import paytm_plan_for
 from marketplace_backend.merchant import DecisionRefused
 from marketplace_backend.shopping import CheckoutRefused
 from marketplace_backend.store import Store
@@ -76,9 +79,13 @@ def verify(secret: str, timestamp: str, signature: str, raw: bytes,
 # ---------------------------------------------------------------- messages
 
 
-def _send(chat_id: str, text: str, buttons: list[list[dict]] | None = None) -> dict:
-    body: dict[str, Any] = {"chat_id": chat_id, "text": text[:_MESSAGE_LIMIT],
-                            "disable_web_page_preview": True}
+def _send(chat_id: str, text: str, buttons: list[list[dict]] | None = None,
+          *, rich: bool = False) -> dict:
+    body: dict[str, Any] = {"chat_id": chat_id, "disable_web_page_preview": True}
+    if rich:  # agent prose is Markdown; Telegram renders a small HTML subset
+        body["text"], body["parse_mode"] = markdown_to_telegram_html(text), "HTML"
+    else:
+        body["text"] = text[:_MESSAGE_LIMIT]
     if buttons:
         body["reply_markup"] = {"inline_keyboard": buttons}
     return {"method": "sendMessage", "body": body}
@@ -96,8 +103,58 @@ def _url_button(text: str, url: str) -> dict:
 
 
 def _chunks(text: str) -> list[str]:
-    text = text.strip()
-    return [text[i:i + _MESSAGE_LIMIT] for i in range(0, len(text), _MESSAGE_LIMIT)] if text else []
+    """Split on paragraph boundaries, so no chunk cuts a bold span or code block in half."""
+    chunks, current = [], ""
+    for paragraph in text.strip().split("\n\n"):
+        while len(paragraph) > _MESSAGE_LIMIT:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.append(paragraph[:_MESSAGE_LIMIT])
+            paragraph = paragraph[_MESSAGE_LIMIT:]
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) > _MESSAGE_LIMIT:
+            chunks.append(current)
+            candidate = paragraph
+        current = candidate
+    return [chunk for chunk in chunks + [current] if chunk.strip()]
+
+
+_CODE_BLOCK = re.compile(r"```[\w-]*\n?(.*?)```", re.DOTALL)
+_INLINE = [
+    (re.compile(r"`([^`\n]+)`"), r"<code>\1</code>"),
+    (re.compile(r"\*\*(.+?)\*\*"), r"<b>\1</b>"),
+    (re.compile(r"__(.+?)__"), r"<b>\1</b>"),
+    (re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)\*(?![\w*])"), r"<i>\1</i>"),
+    (re.compile(r"(?<!\w)_(?!\s)([^_\n]+?)_(?!\w)"), r"<i>\1</i>"),
+    (re.compile(r"~~(.+?)~~"), r"<s>\1</s>"),
+    (re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)"), r'<a href="\2">\1</a>'),
+]
+
+
+def markdown_to_telegram_html(text: str) -> str:
+    """The Markdown a model writes, as the HTML subset Telegram's `parse_mode=HTML`
+    accepts. Everything is escaped first, so model text can never inject markup."""
+    blocks: list[str] = []
+
+    def stash(match: re.Match) -> str:
+        blocks.append(f"<pre>{html.escape(match.group(1).rstrip())}</pre>")
+        return f"\x00{len(blocks) - 1}\x00"
+
+    text = _CODE_BLOCK.sub(stash, text)
+    lines = []
+    for line in html.escape(text, quote=False).split("\n"):
+        heading = re.match(r"^\s{0,3}#{1,6}\s+(.*)$", line)
+        if heading:
+            line = f"**{heading.group(1).strip()}**"
+        line = re.sub(r"^(\s*)[-*+]\s+", r"\1• ", line)
+        if re.fullmatch(r"\s*([-*_])\1{2,}\s*", line):
+            line = "──────────"
+        for pattern, replacement in _INLINE:
+            line = pattern.sub(replacement, line)
+        lines.append(line)
+    rendered = "\n".join(lines)
+    return re.sub(r"\x00(\d+)\x00", lambda m: blocks[int(m.group(1))], rendered)
 
 
 class TelegramChannel:
@@ -254,8 +311,10 @@ class TelegramChannel:
         context_type, state_type = self.session_types[bot_kind]
         messages = transcripts.setdefault(key, [])
         state = states.setdefault(key, state_type())
+        extra = ({"paytm_plan": paytm_plan_for(self.store, principal_id)}
+                 if bot_kind == "merchant" else {})
         session = context_type(conversation_id=key, customer_id=principal_id,
-                               correlation_id=Correlation().correlation_id)
+                               correlation_id=Correlation().correlation_id, **extra)
         messages.append({"role": "user", "content": text})
         events: list[AgentEvent] = []
         try:
@@ -269,7 +328,7 @@ class TelegramChannel:
 
     def render(self, bot_kind: str, chat_id: str, events: list[AgentEvent]) -> list[dict]:
         text = "".join(e.data.get("text", "") for e in events if e.type == "text_delta")
-        out = [_send(chat_id, chunk) for chunk in _chunks(text)]
+        out = [_send(chat_id, chunk, rich=True) for chunk in _chunks(text)]
         for event in events:
             if event.type == "ui":
                 out.extend(self._component(bot_kind, chat_id, event.data["component"],

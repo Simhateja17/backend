@@ -428,6 +428,7 @@ async def portal_chat(body: ChatRequest, principal: Principal = Depends(require_
     messages = _portal_transcripts.setdefault(key, [])
     state = _portal_states.setdefault(key, MerchantSessionState())
     session = MerchantSessionContext(conversation_id=key, customer_id=principal.id,
+                                     paytm_plan=principal.paytm_plan,
                                      correlation_id=correlation.correlation_id,
                                      demo_run_id=correlation.demo_run_id)
     messages.append({"role": "user", "content": body.message})

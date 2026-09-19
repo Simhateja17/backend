@@ -290,3 +290,22 @@ def test_pending_changes_reach_linked_operators_and_need_a_second_approver(world
     stale = run(world.channel.handle("merchant", tap(second["callback_data"], chat="5002",
                                                      user="9002")))
     assert stale[0]["body"]["text"] == "Refused"
+
+
+# ------------------------------------------------------------------ formatting
+
+
+def test_agent_markdown_renders_as_escaped_telegram_html(world):
+    world.shopping_rt.events = [AgentEvent.text_delta(
+        "- **Kurta <Set>** (sd_prd_kurta_set_0_v0): *urgent*\n## Next\nUse `x`")]
+    [reply] = run(world.channel.handle("shopping", message("stock?")))
+    assert reply["body"]["parse_mode"] == "HTML"
+    assert reply["body"]["text"] == (
+        "• <b>Kurta &lt;Set&gt;</b> (sd_prd_kurta_set_0_v0): <i>urgent</i>\n"
+        "<b>Next</b>\nUse <code>x</code>")
+
+
+def test_long_replies_split_between_paragraphs():
+    paragraphs = ["**" + "a" * 1500 + "**"] * 4
+    chunks = tg._chunks("\n\n".join(paragraphs))
+    assert len(chunks) == 2 and all(c.count("**") % 2 == 0 for c in chunks)

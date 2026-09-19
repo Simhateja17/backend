@@ -32,6 +32,9 @@ class MerchantSessionContext(SessionContext):
     principal, and no tool takes an operator id from the model."""
 
     surface: Literal["shopping", "merchant"] = "merchant"
+    # "pos": Paytm POS supplies catalogue and stock. "payments": QR / Soundbox only, so
+    # the store has payment data and nothing about products (see POS_ONLY_TOOLS).
+    paytm_plan: Literal["pos", "payments"] = "pos"
 
     @property
     def operator_id(self) -> str:

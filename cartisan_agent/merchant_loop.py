@@ -108,6 +108,7 @@ class CartisanMerchantRuntime(AgentRuntime):
         store_context, facts = await self._prefetch(session)
         return build_merchant_context(
             operator_name=None,
+            paytm_plan=session.paytm_plan,
             store_context=store_context,
             memory_facts=list(facts or []),
             now=session.local_now(),

@@ -53,6 +53,20 @@ from .merchant_types import (
 from .outcomes import BusinessRefusal, Outcome, Unavailable, refusal, tag
 from .types import inr
 
+# A payments-only merchant (Paytm QR / Soundbox) has no catalogue or stock on Paytm:
+# a payment carries an amount, not the items sold. These tools need Paytm POS.
+POS_ONLY_TOOLS = frozenset({
+    "search_listings", "get_listing", "get_inventory_alerts", "get_pricing_context",
+    "stage_inventory_action", "stage_price_update", "stage_listing_update",
+})
+POS_GATE = "paytm_pos_required"
+POS_REQUIRED_TEXT = (
+    "This store uses Paytm payments only (QR / Soundbox), so there is no catalogue or "
+    "stock data to read. Nothing was read or staged. Say so plainly, answer from payment "
+    "data where it helps, and mention that connecting Paytm POS unlocks stock alerts, "
+    "restocks and pricing."
+)
+
 MAX_LISTINGS = 25
 MAX_ALERTS = 50
 MAX_CHANGES = 50
@@ -161,6 +175,8 @@ class MerchantToolExecutor(BaseToolExecutor):
         the job itself (ADR 0016)."""
         if name in FORBIDDEN_TOOLS:
             return tag(ToolOutcome.held(FORBIDDEN_GATE, forbidden_error(name)), Outcome.BLOCKED)
+        if name in POS_ONLY_TOOLS and self._session.paytm_plan != "pos":
+            return tag(ToolOutcome.held(POS_GATE, POS_REQUIRED_TEXT), Outcome.BLOCKED)
         return await super().dispatch(name, tool_input)
 
     def handlers(self) -> dict[str, Handler]:

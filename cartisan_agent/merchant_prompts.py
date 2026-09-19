@@ -91,6 +91,7 @@ Each presentation tool's description says when it applies. On every presentation
 def build_merchant_context(
     *,
     operator_name: str | None,
+    paytm_plan: str = "pos",
     store_context: dict[str, Any] | None,
     memory_facts: list[MemoryFact],
     now: datetime | None = None,
@@ -104,6 +105,13 @@ def build_merchant_context(
     payload: dict[str, Any] = {}
     if operator_name:
         payload["operator"] = {"name": operator_name}
+    payload["paytm_products"] = (
+        {"plan": "pos", "note": "Paytm POS connected: catalogue, stock and payments are available."}
+        if paytm_plan == "pos" else
+        {"plan": "payments", "note": "Paytm payments only (QR / Soundbox). There is no catalogue "
+         "or stock data; stock, restock and pricing tools are unavailable. Work from payments, "
+         "orders and customers, and suggest Paytm POS when the operator asks about stock."}
+    )
     if store_context is not None:
         rendered = json.dumps(store_context, ensure_ascii=False, default=str)
         payload["store"] = (

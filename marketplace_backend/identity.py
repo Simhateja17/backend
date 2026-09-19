@@ -26,6 +26,9 @@ class Principal:
     email: str
     role: str  # "customer" | "merchant_operator"
     display_name: str | None = None
+    # Which Paytm products the merchant runs: "pos" has catalogue and stock, "payments"
+    # (QR / Soundbox only) has payment data and nothing about products.
+    paytm_plan: str = "pos"
 
 
 class IdentityService:
@@ -94,10 +97,26 @@ class IdentityService:
         metadata = user.get("app_metadata") or {}
         role = "merchant_operator" if metadata.get("cartisan_role") == "merchant_operator" else "customer"
         display_name = (user.get("user_metadata") or {}).get("display_name")
-        table = "merchant_operators" if role == "merchant_operator" else "customers"
+        if role == "merchant_operator":
+            plan = "payments" if metadata.get("paytm_plan") == "payments" else "pos"
+            self.store.execute(
+                "INSERT INTO merchant_operators (id,email,display_name,paytm_plan) VALUES (?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET email=excluded.email, "
+                "display_name=excluded.display_name, paytm_plan=excluded.paytm_plan",
+                (user["id"], user["email"], display_name, plan),
+            )
+            return Principal(id=user["id"], email=user["email"], role=role,
+                             display_name=display_name, paytm_plan=plan)
         self.store.execute(
-            f"INSERT INTO {table} (id,email,display_name) VALUES (?,?,?) "
+            "INSERT INTO customers (id,email,display_name) VALUES (?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET email=excluded.email, display_name=excluded.display_name",
             (user["id"], user["email"], display_name),
         )
         return Principal(id=user["id"], email=user["email"], role=role, display_name=display_name)
+
+
+def paytm_plan_for(store: Store, operator_id: str) -> str:
+    """The plan recorded at the operator's last verified sign-in, for channels such as
+    Telegram that know the principal id but not the token."""
+    rows = store.rows("SELECT paytm_plan FROM merchant_operators WHERE id=?", (operator_id,))
+    return "payments" if rows and rows[0]["paytm_plan"] == "payments" else "pos"
