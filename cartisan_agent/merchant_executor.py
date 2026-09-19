@@ -52,6 +52,7 @@ from .merchant_types import (
 )
 from .outcomes import BusinessRefusal, Outcome, Unavailable, refusal, tag
 from .types import inr
+from marketplace_backend import merchant_finance
 
 # A payments-only merchant (Paytm QR / Soundbox) has no catalogue or stock on Paytm:
 # a payment carries an amount, not the items sold. These tools need Paytm POS.
@@ -242,13 +243,19 @@ class MerchantToolExecutor(BaseToolExecutor):
                 "restock_cost_minor": financing["restock_cost_minor"],
                 "cash_last_7_days_minor": financing["cash_last_7_days_minor"],
             },
-            after={
-                "amount_minor": int(tool_input.get("amount_minor") or loan["suggested_amount_minor"]),
-                "tenure_months": int(tool_input.get("tenure_months") or 6),
-                "purpose": self._sanitize(tool_input.get("purpose") or "Restock ahead of demand", 120),
-            },
+            after=self._loan_after(tool_input, loan),
             rationale=self._sanitize(tool_input.get("rationale"), 400),
         )
+
+    def _loan_after(self, tool_input: dict[str, Any], loan: dict) -> dict[str, Any]:
+        amount = int(tool_input.get("amount_minor") or loan["suggested_amount_minor"])
+        tenure = int(tool_input.get("tenure_months") or 6)
+        return {
+            "amount_minor": amount,
+            "tenure_months": tenure,
+            "monthly_repayment_estimate_minor": merchant_finance.monthly_repayment(amount, tenure),
+            "purpose": self._sanitize(tool_input.get("purpose") or "Restock ahead of demand", 120),
+        }
 
     async def _get_recovery_policy(self, tool_input: dict[str, Any]) -> ToolOutcome:
         return self._fenced(await self.port.get_recovery_policy(self._session))
