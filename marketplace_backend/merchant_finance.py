@@ -89,6 +89,15 @@ def payment_health(store: Store, window_days: int = 7) -> dict[str, Any]:
             "WHERE status='failed' AND created_at >= ? GROUP BY failure_reason ORDER BY n DESC",
             (since,))
     ]
+    daily: dict[str, int] = {}
+    for offset in range(window_days - 1, -1, -1):
+        daily[(datetime.now(UTC) - timedelta(days=offset)).date().isoformat()] = 0
+    for row in store.rows(
+            "SELECT created_at, amount_paid_minor FROM commerce_orders "
+            "WHERE status='paid' AND created_at >= ?", (since,)):
+        day = str(row["created_at"])[:10]
+        if day in daily:
+            daily[day] += int(row["amount_paid_minor"])
     paid = by_status.get("paid", {"orders": 0, "amount_minor": 0})
     waiting = sum(by_status.get(s, {}).get("amount_minor", 0)
                   for s in ("pending_payment", "payment_verification_pending"))
@@ -102,6 +111,7 @@ def payment_health(store: Store, window_days: int = 7) -> dict[str, Any]:
         "orders_by_status": by_status,
         "stuck_orders": stuck,
         "failed_attempts": failures,
+        "daily_collections": [{"date": d, "amount_minor": v} for d, v in daily.items()],
         "basis": (
             "Collected money is the sum of amount_paid on orders Paytm has verified as paid. "
             "Orders still pending or awaiting verification are not revenue yet; stuck orders "

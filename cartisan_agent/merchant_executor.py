@@ -209,9 +209,13 @@ class MerchantToolExecutor(BaseToolExecutor):
     async def _get_payment_health(self, tool_input: dict[str, Any]) -> ToolOutcome:
         health = await self.port.get_payment_health(
             self._session, int(tool_input.get("window_days") or 7))
+        # The card is drawn from the same record the model reads, so the picture and
+        # the prose cannot disagree.
         return self._fenced({**health, "note": (
-            "Only verified Paytm payments are collected money. Name stuck orders and failed "
-            "attempts plainly; an order awaiting verification is not revenue yet.")})
+            "Only verified Paytm payments are collected money. The portal already shows a "
+            "payment health card with these figures; summarise in a sentence or two and "
+            "name what needs action, rather than repeating every number.")},
+            [AgentEvent.ui("payment_health", health)])
 
     async def _check_restock_financing(self, tool_input: dict[str, Any]) -> ToolOutcome:
         financing = await self.port.get_restock_financing(
@@ -221,6 +225,7 @@ class MerchantToolExecutor(BaseToolExecutor):
         if financing.get("loan"):
             self._state.sized_loan = financing
         return self._fenced({**financing, "note": (
+            "The portal already shows a restock financing card with these figures. "
             "This covers every fast-moving item together; the loan is for the whole restock, "
             "so never ask which item it is for. Keep the operator's demand_multiplier on any "
             "re-check. "
@@ -228,7 +233,8 @@ class MerchantToolExecutor(BaseToolExecutor):
             "When loan is not null, you may offer a Paytm merchant loan of the suggested "
             "amount and stage it with stage_loan_request if the operator wants it; never "
             "apply for it yourself. When loan is null, say the restock can be paid from "
-            "collections.")})
+            "collections.")},
+            [AgentEvent.ui("restock_financing", financing)])
 
     async def _stage_loan_request(self, tool_input: dict[str, Any]) -> ToolOutcome:
         financing = self._state.sized_loan
