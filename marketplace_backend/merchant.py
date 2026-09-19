@@ -174,6 +174,8 @@ class MerchantService:
             self._apply_campaign(tx, after)
         elif kind == "recovery_policy":
             self._apply_recovery_policy(tx, after, change["id"])
+        elif kind == "loan_request":
+            self._apply_loan_request(tx, change)
         else:  # unreachable: `stage` refuses an unknown kind
             raise DecisionRefused(f"no applier for change kind {kind!r}")
 
@@ -238,6 +240,18 @@ class MerchantService:
             (f"promo_{uuid4().hex[:12]}", after["code"], after["description"],
              after["discount_kind"], int(after["discount_value"]),
              int(after.get("min_subtotal_minor") or 0), iso_now()))
+
+    @staticmethod
+    def _apply_loan_request(tx: Any, change: dict) -> None:
+        """Record the request as submitted to Paytm's lending partner. Simulated: no
+        lender is called and no money moves; the row is the whole effect."""
+        after = change["after"]
+        tx.execute(
+            "INSERT INTO loan_requests (id,change_id,amount_minor,tenure_months,purpose,"
+            "eligible_limit_minor,status,created_at) VALUES (?,?,?,?,?,?,'submitted',?)",
+            (f"loan_{uuid4().hex[:12]}", change["id"], int(after["amount_minor"]),
+             int(after["tenure_months"]), after["purpose"],
+             int(change["before"]["eligible_limit_minor"]), iso_now()))
 
     @staticmethod
     def _apply_recovery_policy(tx: Any, after: dict, change_id: str) -> None:

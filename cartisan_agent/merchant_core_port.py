@@ -30,6 +30,9 @@ from marketplace_backend.merchant_changes import (
     MerchantChangeRepository,
     PolicyViolation,
 )
+from marketplace_backend import merchant_finance
+from marketplace_backend.cart_recovery import active_policy
+from marketplace_backend.merchant_changes import POLICY_BOUNDS
 from marketplace_backend.metrics import MetricsRepository
 from marketplace_backend.store import Store
 from marketplace_backend.timeutil import now as iso_now
@@ -634,6 +637,19 @@ class CoreMerchantPort(MerchantPort):
         return _change(row)
 
     # -- the current-state reader the host revalidates against -------------------
+
+    # -- payments and financing -------------------------------------------------
+
+    async def get_payment_health(self, session: MerchantSessionContext, window_days: int = 7) -> dict:
+        return merchant_finance.payment_health(self.store, _window(window_days))
+
+    async def get_restock_financing(self, session: MerchantSessionContext, horizon_days: int = 21,
+                                    demand_multiplier: float = 1.0) -> dict:
+        return merchant_finance.restock_financing(
+            self.store, max(7, min(int(horizon_days or 21), 60)), demand_multiplier)
+
+    async def get_recovery_policy(self, session: MerchantSessionContext) -> dict:
+        return {"active": active_policy(self.store), "bounds": POLICY_BOUNDS["recovery_policy"]}
 
     def current_before(self, change: dict) -> dict:
         """The live `before` document for a staged change's target.

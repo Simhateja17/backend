@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from .outcomes import Unavailable
+
 from .merchant_types import (
     BusinessSnapshot,
     CampaignPerformance,
@@ -30,6 +32,18 @@ from .merchant_types import (
 
 
 class MerchantPort(ABC):
+    # -- payments and financing (optional; a port without them says so) --------
+
+    async def get_payment_health(self, session: MerchantSessionContext, window_days: int = 7) -> dict:
+        raise Unavailable("payment health is not available on this store")
+
+    async def get_restock_financing(self, session: MerchantSessionContext, horizon_days: int = 21,
+                                    demand_multiplier: float = 1.0) -> dict:
+        raise Unavailable("restock financing is not available on this store")
+
+    async def get_recovery_policy(self, session: MerchantSessionContext) -> dict:
+        raise Unavailable("cart recovery is not available on this store")
+
     # -- evidence-backed reads -------------------------------------------------
 
     @abstractmethod

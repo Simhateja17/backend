@@ -35,7 +35,7 @@ from .store import Store
 from .timeutil import now as _now
 
 KINDS = ("inventory_action", "price_update", "promotion", "campaign", "listing_update",
-         "recovery_policy")
+         "recovery_policy", "loan_request")
 
 # Bounds re-checked at application time, not just at staging time, because the
 # world may have moved between the proposal and the operator's decision.
@@ -50,6 +50,8 @@ POLICY_BOUNDS = {
     "recovery_policy": {"max_percentage": 20, "max_discount_minor": 200_000,
                         "max_monthly_budget_minor": 5_000_000, "min_abandon_minutes": 30,
                         "min_cooldown_days": 7, "max_offer_valid_hours": 168},
+    # A Paytm merchant loan request: never above the limit computed when it was staged.
+    "loan_request": {"max_amount_minor": 50_00_000_00, "tenure_months": [3, 6, 9, 12]},
 }
 
 LISTING_STATUSES = ("draft", "active", "discontinued")
@@ -313,6 +315,17 @@ class MerchantChangeRepository:
             if budget > limit:
                 raise PolicyViolation(
                     f"a budget of {budget} paise exceeds the {limit} paise bound")
+        elif kind == "loan_request":
+            bounds = POLICY_BOUNDS["loan_request"]
+            amount = int(after.get("amount_minor") or 0)
+            limit = int(before.get("eligible_limit_minor") or 0)
+            if amount <= 0:
+                raise PolicyViolation("a loan request needs a positive amount")
+            if amount > min(limit, bounds["max_amount_minor"]):
+                raise PolicyViolation(
+                    f"a loan of {amount} paise is above the eligible limit of {limit} paise")
+            if int(after.get("tenure_months") or 0) not in bounds["tenure_months"]:
+                raise PolicyViolation(f"tenure must be one of {bounds['tenure_months']} months")
         elif kind == "recovery_policy":
             bounds = POLICY_BOUNDS["recovery_policy"]
             fields = ("abandon_after_minutes", "min_cart_minor", "discount_percentage",

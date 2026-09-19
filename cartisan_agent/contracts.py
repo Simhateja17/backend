@@ -43,11 +43,12 @@ SHOPPING_PRESENTATION: tuple[str, ...] = (
 MERCHANT_READS: tuple[str, ...] = (
     "get_business_snapshot", "query_metrics", "search_listings", "get_listing",
     "get_inventory_alerts", "get_unmet_demand", "get_pricing_context", "get_campaign_performance",
-    "get_pending_changes", "load_skill",
+    "get_pending_changes", "load_skill", "get_payment_health", "check_restock_financing",
+    "get_recovery_policy", "recall_memories",
 )
 MERCHANT_STAGING: tuple[str, ...] = (
     "stage_inventory_action", "stage_price_update", "stage_promotion", "stage_campaign",
-    "stage_listing_update",
+    "stage_listing_update", "stage_loan_request", "stage_recovery_policy",
 )
 MERCHANT_PRESENTATION: tuple[str, ...] = (
     "present_digest", "present_metrics", "present_change_preview", "present_suggestions",
@@ -706,6 +707,59 @@ def build_merchant_tools(
                 {"limit": {"type": "integer", "minimum": 1, "maximum": 50}}
             ),
         },
+        {
+            "name": "get_payment_health",
+            "description": (
+                "Paytm payment health over a window: verified collections, paid orders, "
+                "orders still awaiting payment or verification, stuck orders, and failed "
+                "payment attempts by reason. Use it for today's orders, collections, "
+                "settlements, or payment problems."
+            ),
+            "input_schema": _object(
+                {"window_days": {"type": "integer", "minimum": 1, "maximum": 90}}
+            ),
+        },
+        {
+            "name": "check_restock_financing",
+            "description": (
+                "Whether the store can afford to restock fast-moving items for the coming "
+                "days from its verified Paytm collections: estimated restock cost, cash "
+                "from the last 7 days, the shortfall, and, when there is one, a Paytm "
+                "merchant loan sized to cover it. Use it when the operator asks whether "
+                "they can afford a restock or is preparing for a busy season."
+            ),
+            "input_schema": _object(
+                {"horizon_days": {"type": "integer", "minimum": 7, "maximum": 60,
+                                  "description": "Days of sales the restock should cover."},
+                 "demand_multiplier": {"type": "number", "minimum": 1, "maximum": 3,
+                                       "description": (
+                                           "Expected demand against the normal rate, from "
+                                           "the operator's words: 2 for a festival they "
+                                           "expect to sell double. Default 1; ask when a "
+                                           "season is named without a figure, or use 1.5 "
+                                           "and say so.")}}
+            ),
+        },
+        {
+            "name": "get_recovery_policy",
+            "description": (
+                "The cart recovery policy in force, if any, and the bounds a new one "
+                "must stay within."
+            ),
+            "input_schema": _empty(),
+        },
+        {
+            "name": "recall_memories",
+            "description": (
+                "Search the store's saved lessons from the operators' own past decisions, "
+                "e.g. which promotion sizes they approve or reject and why. Use it before "
+                "proposing a promotion, price change, or recovery offer."
+            ),
+            "input_schema": _object(
+                {"topic": {"type": "string", "maxLength": 100,
+                           "description": "Topic to search for, in a few words."}}
+            ),
+        },
     ]
 
     def _staging(name: str, what: str, fields: dict[str, Any], required: list[str]) -> dict[str, Any]:
@@ -786,6 +840,30 @@ def build_merchant_tools(
                 "status": _string("Proposed status.", enum=["draft", "active", "discontinued"]),
             },
             ["product_id"],
+        ),
+        _staging(
+            "stage_loan_request", "a Paytm merchant loan request",
+            {
+                "amount_minor": {"type": "integer", "minimum": 1,
+                                 "description": "Loan amount in paise, at most the eligible "
+                                                "limit check_restock_financing returned."},
+                "tenure_months": {"type": "integer", "enum": [3, 6, 9, 12]},
+                "purpose": _string("What the loan pays for.", maxLength=120),
+            },
+            ["amount_minor", "tenure_months", "purpose"],
+        ),
+        _staging(
+            "stage_recovery_policy", "a cart recovery policy",
+            {
+                "abandon_after_minutes": {"type": "integer", "minimum": 30, "maximum": 10080},
+                "min_cart_minor": {"type": "integer", "minimum": 0},
+                "discount_percentage": {"type": "integer", "minimum": 1, "maximum": 20},
+                "max_discount_minor": {"type": "integer", "minimum": 1, "maximum": 200000},
+                "cooldown_days": {"type": "integer", "minimum": 7, "maximum": 365},
+                "monthly_budget_minor": {"type": "integer", "minimum": 0, "maximum": 5000000},
+                "offer_valid_hours": {"type": "integer", "minimum": 1, "maximum": 168},
+            },
+            ["min_cart_minor", "discount_percentage", "max_discount_minor", "monthly_budget_minor"],
         ),
     ]
 

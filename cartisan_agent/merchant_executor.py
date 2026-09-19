@@ -58,6 +58,7 @@ from .types import inr
 POS_ONLY_TOOLS = frozenset({
     "search_listings", "get_listing", "get_inventory_alerts", "get_pricing_context",
     "stage_inventory_action", "stage_price_update", "stage_listing_update",
+    "check_restock_financing",
 })
 POS_GATE = "paytm_pos_required"
 POS_REQUIRED_TEXT = (
@@ -195,7 +196,82 @@ class MerchantToolExecutor(BaseToolExecutor):
             "stage_promotion": self._stage_promotion,
             "stage_campaign": self._stage_campaign,
             "stage_listing_update": self._stage_listing_update,
+            "get_payment_health": self._get_payment_health,
+            "check_restock_financing": self._check_restock_financing,
+            "stage_loan_request": self._stage_loan_request,
+            "get_recovery_policy": self._get_recovery_policy,
+            "stage_recovery_policy": self._stage_recovery_policy,
         }
+
+    # -- payments, financing and recovery -----------------------------------------
+
+    async def _get_payment_health(self, tool_input: dict[str, Any]) -> ToolOutcome:
+        health = await self.port.get_payment_health(
+            self._session, int(tool_input.get("window_days") or 7))
+        return self._fenced({**health, "note": (
+            "Only verified Paytm payments are collected money. Name stuck orders and failed "
+            "attempts plainly; an order awaiting verification is not revenue yet.")})
+
+    async def _check_restock_financing(self, tool_input: dict[str, Any]) -> ToolOutcome:
+        financing = await self.port.get_restock_financing(
+            self._session, int(tool_input.get("horizon_days") or 21),
+            float(tool_input.get("demand_multiplier") or 1.0))
+        self._state.financing = financing
+        return self._fenced({**financing, "note": (
+            "Say which figures are observed and which are estimated, as claim_kinds states. "
+            "When loan is not null, you may offer a Paytm merchant loan of the suggested "
+            "amount and stage it with stage_loan_request if the operator wants it; never "
+            "apply for it yourself. When loan is null, say the restock can be paid from "
+            "collections.")})
+
+    async def _stage_loan_request(self, tool_input: dict[str, Any]) -> ToolOutcome:
+        financing = self._state.financing
+        if not financing or not financing.get("loan"):
+            return tag(ToolOutcome.held(
+                "loan_provenance",
+                "No loan has been sized this session. Call check_restock_financing first; "
+                "a loan is only staged against a limit it returned. Nothing was staged."),
+                Outcome.BLOCKED)
+        loan = financing["loan"]
+        return await self._stage(
+            kind="loan_request",
+            target_type="paytm_loan",
+            target_id=None,
+            before={
+                "eligible_limit_minor": loan["eligible_limit_minor"],
+                "restock_cost_minor": financing["restock_cost_minor"],
+                "cash_last_7_days_minor": financing["cash_last_7_days_minor"],
+            },
+            after={
+                "amount_minor": int(tool_input.get("amount_minor") or loan["suggested_amount_minor"]),
+                "tenure_months": int(tool_input.get("tenure_months") or 6),
+                "purpose": self._sanitize(tool_input.get("purpose") or "Restock ahead of demand", 120),
+            },
+            rationale=self._sanitize(tool_input.get("rationale"), 400),
+        )
+
+    async def _get_recovery_policy(self, tool_input: dict[str, Any]) -> ToolOutcome:
+        return self._fenced(await self.port.get_recovery_policy(self._session))
+
+    async def _stage_recovery_policy(self, tool_input: dict[str, Any]) -> ToolOutcome:
+        current = (await self.port.get_recovery_policy(self._session)).get("active")
+        after = {
+            "abandon_after_minutes": int(tool_input.get("abandon_after_minutes") or 120),
+            "min_cart_minor": int(tool_input.get("min_cart_minor") or 0),
+            "discount_percentage": int(tool_input.get("discount_percentage") or 0),
+            "max_discount_minor": int(tool_input.get("max_discount_minor") or 0),
+            "cooldown_days": int(tool_input.get("cooldown_days") or 14),
+            "monthly_budget_minor": int(tool_input.get("monthly_budget_minor") or 0),
+            "offer_valid_hours": int(tool_input.get("offer_valid_hours") or 48),
+        }
+        return await self._stage(
+            kind="recovery_policy",
+            target_type="recovery_policy",
+            target_id=None,
+            before={key: current[key] for key in after} if current else {},
+            after=after,
+            rationale=self._sanitize(tool_input.get("rationale"), 400),
+        )
 
     # -- reads ---------------------------------------------------------------------
 

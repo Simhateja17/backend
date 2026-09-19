@@ -116,6 +116,19 @@ create index if not exists memory_feedback_subject_idx on memory_feedback (subje
 RECOVERY_DDL = """
 -- ==================================================== cart recovery
 
+-- A Paytm merchant loan request the operator approved. Simulated: recording it is the
+-- whole effect; no lender is called and no money moves.
+create table if not exists loan_requests (
+  id text primary key,
+  change_id text not null,
+  amount_minor integer not null check (amount_minor > 0),
+  tenure_months integer not null check (tenure_months in (3, 6, 9, 12)),
+  purpose text not null,
+  eligible_limit_minor integer not null,
+  status text not null default 'submitted' check (status in ('submitted', 'approved', 'declined')),
+  created_at timestamptz not null default now()
+);
+
 -- One active policy at a time; approving a new one retires the old.
 create table if not exists recovery_policies (
   id text primary key,

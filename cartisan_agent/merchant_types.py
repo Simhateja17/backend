@@ -243,6 +243,9 @@ class MerchantSessionState(BaseModel):
     """
 
     seen_listings: dict[str, Listing] = Field(default_factory=dict)      # product_id
+    # The last restock-financing read, so a loan request can only be staged against a
+    # limit the server computed this session.
+    financing: dict[str, Any] | None = None
     seen_variants: dict[str, ListingVariant] = Field(default_factory=dict)
     read_metrics: dict[str, MetricSeries] = Field(default_factory=dict)  # f"{metric}:{days}"
     read_claims: dict[str, Claim] = Field(default_factory=dict)          # claim key

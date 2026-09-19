@@ -476,7 +476,7 @@ create table if not exists merchant_changes (
   conversation_id text,
   kind text not null check (kind in
     ('inventory_action', 'price_update', 'promotion', 'campaign', 'listing_update',
-     'recovery_policy')),
+     'recovery_policy', 'loan_request')),
   target_type text not null,
   target_id text,
   -- governed jsonb: the exact before/after documents shown on the approval surface.

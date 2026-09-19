@@ -44,3 +44,63 @@ async def test_pos_merchant_reads_stock(tmp_path):
 def test_context_names_the_plan():
     assert '"plan": "payments"' in build_merchant_context(
         operator_name=None, paytm_plan="payments", store_context=None, memory_facts=[])
+
+
+# -- payment health and restock financing ---------------------------------------------
+
+from marketplace_backend import merchant_finance  # noqa: E402
+from marketplace_backend.merchant_changes import MerchantChangeRepository, PolicyViolation  # noqa: E402
+
+
+async def test_payment_health_counts_only_verified_money(tmp_path):
+    outcome = await _executor(tmp_path, "payments").execute("get_payment_health", {"window_days": 30})
+    assert outcome.blocked is None and not outcome.is_error
+    assert "verified_collections" in outcome.result_text
+
+
+async def test_loan_cannot_be_staged_before_it_is_sized(tmp_path):
+    outcome = await _executor(tmp_path, "pos").execute(
+        "stage_loan_request", {"amount_minor": 100, "tenure_months": 6, "purpose": "x",
+                               "rationale": "x"})
+    assert outcome.blocked == "loan_provenance"
+
+
+async def test_payments_only_merchant_cannot_size_a_restock_loan(tmp_path):
+    outcome = await _executor(tmp_path, "payments").execute("check_restock_financing", {})
+    assert outcome.blocked == POS_GATE
+
+
+async def test_loan_is_staged_against_the_computed_limit(tmp_path):
+    executor = _executor(tmp_path, "pos")
+    executor._state.financing = {
+        "restock_cost_minor": 500_000_00, "cash_last_7_days_minor": 100_000_00,
+        "loan": {"suggested_amount_minor": 400_000_00, "eligible_limit_minor": 600_000_00}}
+    outcome = await executor.execute(
+        "stage_loan_request", {"amount_minor": 400_000_00, "tenure_months": 6,
+                               "purpose": "Diwali restock", "rationale": "Shortfall of ₹4,00,000"})
+    assert not outcome.refused, outcome.result_text
+    assert "Queued for approval" in outcome.result_text
+
+
+def test_loan_above_limit_or_bad_tenure_is_refused():
+    before = {"eligible_limit_minor": 1_000}
+    with pytest.raises(PolicyViolation):
+        MerchantChangeRepository.check_policy("loan_request", before,
+                                              {"amount_minor": 2_000, "tenure_months": 6})
+    with pytest.raises(PolicyViolation):
+        MerchantChangeRepository.check_policy("loan_request", before,
+                                              {"amount_minor": 500, "tenure_months": 5})
+    MerchantChangeRepository.check_policy("loan_request", before,
+                                          {"amount_minor": 1_000, "tenure_months": 12})
+
+
+def test_repayment_estimate_is_positive_and_rounds_up():
+    assert merchant_finance.monthly_repayment(600_00, 6) == 109_00
+    assert merchant_finance._inr(1_23_45_600) == "₹1,23,456"
+
+
+async def test_recovery_policy_can_be_staged_by_the_agent(tmp_path):
+    outcome = await _executor(tmp_path, "pos").execute("stage_recovery_policy", {
+        "min_cart_minor": 150_000, "discount_percentage": 10, "max_discount_minor": 30_000,
+        "monthly_budget_minor": 1_000_000, "rationale": "Abandoned carts worth ₹48,000 last week"})
+    assert not outcome.refused, outcome.result_text
