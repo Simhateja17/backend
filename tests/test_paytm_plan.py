@@ -72,7 +72,7 @@ async def test_payments_only_merchant_cannot_size_a_restock_loan(tmp_path):
 
 async def test_loan_is_staged_against_the_computed_limit(tmp_path):
     executor = _executor(tmp_path, "pos")
-    executor._state.financing = {
+    executor._state.sized_loan = {
         "restock_cost_minor": 500_000_00, "cash_last_7_days_minor": 100_000_00,
         "loan": {"suggested_amount_minor": 400_000_00, "eligible_limit_minor": 600_000_00}}
     outcome = await executor.execute(
@@ -103,4 +103,18 @@ async def test_recovery_policy_can_be_staged_by_the_agent(tmp_path):
     outcome = await _executor(tmp_path, "pos").execute("stage_recovery_policy", {
         "min_cart_minor": 150_000, "discount_percentage": 10, "max_discount_minor": 30_000,
         "monthly_budget_minor": 1_000_000, "rationale": "Abandoned carts worth ₹48,000 last week"})
+    assert not outcome.refused, outcome.result_text
+
+
+async def test_a_later_check_without_shortfall_keeps_the_sized_loan(tmp_path):
+    """The failure seen in the portal: 2x demand sized a loan, a 1x re-check found no
+    shortfall, and staging was refused because the sized loan had been overwritten."""
+    executor = _executor(tmp_path, "pos")
+    executor._state.sized_loan = {
+        "restock_cost_minor": 630_000_00, "cash_last_7_days_minor": 494_000_00,
+        "loan": {"suggested_amount_minor": 140_000_00, "eligible_limit_minor": 2_400_000_00}}
+    await executor.execute("check_restock_financing", {"horizon_days": 21})  # no loan at 1x
+    outcome = await executor.execute(
+        "stage_loan_request", {"amount_minor": 140_000_00, "tenure_months": 3,
+                               "purpose": "Diwali restock", "rationale": "2x demand shortfall"})
     assert not outcome.refused, outcome.result_text

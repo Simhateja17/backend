@@ -218,7 +218,12 @@ class MerchantToolExecutor(BaseToolExecutor):
             self._session, int(tool_input.get("horizon_days") or 21),
             float(tool_input.get("demand_multiplier") or 1.0))
         self._state.financing = financing
+        if financing.get("loan"):
+            self._state.sized_loan = financing
         return self._fenced({**financing, "note": (
+            "This covers every fast-moving item together; the loan is for the whole restock, "
+            "so never ask which item it is for. Keep the operator's demand_multiplier on any "
+            "re-check. "
             "Say which figures are observed and which are estimated, as claim_kinds states. "
             "When loan is not null, you may offer a Paytm merchant loan of the suggested "
             "amount and stage it with stage_loan_request if the operator wants it; never "
@@ -226,7 +231,7 @@ class MerchantToolExecutor(BaseToolExecutor):
             "collections.")})
 
     async def _stage_loan_request(self, tool_input: dict[str, Any]) -> ToolOutcome:
-        financing = self._state.financing
+        financing = self._state.sized_loan
         if not financing or not financing.get("loan"):
             return tag(ToolOutcome.held(
                 "loan_provenance",

@@ -847,7 +847,8 @@ def build_merchant_tools(
                 "amount_minor": {"type": "integer", "minimum": 1,
                                  "description": "Loan amount in paise, at most the eligible "
                                                 "limit check_restock_financing returned."},
-                "tenure_months": {"type": "integer", "enum": [3, 6, 9, 12]},
+                "tenure_months": {"type": "integer", "enum": [3, 6, 9, 12],
+                                  "description": "Default 6 unless the operator names one."},
                 "purpose": _string("What the loan pays for.", maxLength=120),
             },
             ["amount_minor", "tenure_months", "purpose"],
